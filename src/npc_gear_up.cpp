@@ -223,47 +223,54 @@ bool shares_sub_part( const item &a, const item &b )
 }
 
 // Same sub-part *and* same layer as something worn: that is the redundancy
-// (second pair of pants), where an undershirt under a hoodie is not.
-// can_wear() only forbids a second rigid piece, so the soft case lands here.
-bool conflicts_with_worn( const Character &who, const item &candidate )
+// (second pair of pants, second shirt on normal layer), where an undershirt
+// under a hoodie is not.
+bool shares_layer_and_sub_part( const item &a, const item &b )
 {
-    const std::vector<sub_bodypart_id> cand_parts = candidate.get_covered_sub_body_parts();
-    bool conflict = false;
-    who.visit_items( [&]( const item * node, item * ) {
-        if( !who.is_worn( *node ) || !shares_sub_part( *node, candidate ) ) {
-            return VisitResponse::NEXT;
-        }
-        const std::vector<sub_bodypart_id> worn_parts = node->get_covered_sub_body_parts();
-        if( !cand_parts.empty() && !worn_parts.empty() ) {
-            for( const sub_bodypart_id &sbp : cand_parts ) {
-                if( std::find( worn_parts.begin(), worn_parts.end(), sbp ) == worn_parts.end() ) {
-                    continue;
-                }
-                const std::vector<layer_level> cand_layers = candidate.get_layer( sbp );
-                const std::vector<layer_level> worn_layers = node->get_layer( sbp );
-                for( const layer_level &l : cand_layers ) {
-                    if( std::find( worn_layers.begin(), worn_layers.end(), l ) != worn_layers.end() ) {
-                        conflict = true;
-                        return VisitResponse::ABORT;
-                    }
-                }
-            }
-            return VisitResponse::NEXT;
-        }
-        // One side has no sub-bodypart data: compare at whole-bodypart
-        // granularity instead, or a second towel never conflicts with the first.
-        for( const bodypart_id &bp : who.get_all_body_parts() ) {
-            if( !candidate.covers( bp ) || !node->covers( bp ) ) {
+    if( !shares_sub_part( a, b ) ) {
+        return false;
+    }
+    const std::vector<sub_bodypart_id> a_parts = a.get_covered_sub_body_parts();
+    const std::vector<sub_bodypart_id> b_parts = b.get_covered_sub_body_parts();
+    if( !a_parts.empty() && !b_parts.empty() ) {
+        for( const sub_bodypart_id &sbp : a_parts ) {
+            if( std::find( b_parts.begin(), b_parts.end(), sbp ) == b_parts.end() ) {
                 continue;
             }
-            const std::vector<layer_level> cand_layers = candidate.get_layer( bp );
-            const std::vector<layer_level> worn_layers = node->get_layer( bp );
-            for( const layer_level &l : cand_layers ) {
-                if( std::find( worn_layers.begin(), worn_layers.end(), l ) != worn_layers.end() ) {
-                    conflict = true;
-                    return VisitResponse::ABORT;
+            const std::vector<layer_level> a_layers = a.get_layer( sbp );
+            const std::vector<layer_level> b_layers = b.get_layer( sbp );
+            for( const layer_level &l : a_layers ) {
+                if( std::find( b_layers.begin(), b_layers.end(), l ) != b_layers.end() ) {
+                    return true;
                 }
             }
+        }
+        return false;
+    }
+    for( const bodypart_str_id &bp : a.get_covered_body_parts() ) {
+        if( !b.covers( bp.id() ) ) {
+            continue;
+        }
+        const std::vector<layer_level> a_layers = a.get_layer( bp.id() );
+        const std::vector<layer_level> b_layers = b.get_layer( bp.id() );
+        for( const layer_level &l : a_layers ) {
+            if( std::find( b_layers.begin(), b_layers.end(), l ) != b_layers.end() ) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// can_wear() only forbids a second rigid piece, so the soft redundancy is asked
+// about separately.
+bool conflicts_with_worn( const Character &who, const item &candidate )
+{
+    bool conflict = false;
+    who.visit_items( [&]( const item * node, item * ) {
+        if( who.is_worn( *node ) && shares_layer_and_sub_part( *node, candidate ) ) {
+            conflict = true;
+            return VisitResponse::ABORT;
         }
         return VisitResponse::NEXT;
     } );
@@ -1358,10 +1365,11 @@ bool is_garment_upgrade( Character &p, const item &it )
     if( !conflicts_with_worn( p, it ) && p.can_wear( it ).success() ) {
         return true;
     }
-    // Otherwise it has to beat something already worn on the same patch of skin.
+    // Otherwise it has to beat something already worn on the same patch of skin
+    // at the same layer (e.g. replacing an inferior normal-layer shirt).
     bool better_than_something = false;
     p.visit_items( [&]( const item * node, item * ) {
-        if( !p.is_worn( *node ) || node->is_favorite || !shares_sub_part( *node, it ) ||
+        if( !p.is_worn( *node ) || node->is_favorite || !shares_layer_and_sub_part( *node, it ) ||
             !p.can_takeoff( *node ).success() ) {
             return VisitResponse::NEXT;
         }
@@ -1777,8 +1785,8 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
         return false;
     }
 
-    // Otherwise displace the worst piece already on that patch of skin, if this
-    // beats it.
+    // Otherwise displace the worst piece already on that patch of skin and layer,
+    // if this beats it.
     item_location replace_target;
     double replace_proxy = 0.0;
     for( item_location &worn_loc : p.all_items_loc() ) {
@@ -1786,7 +1794,7 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
             continue;
         }
         const item &worn = *worn_loc;
-        if( worn.is_favorite || !shares_sub_part( worn, on_the_shelf ) ||
+        if( worn.is_favorite || !shares_layer_and_sub_part( worn, on_the_shelf ) ||
             !p.can_takeoff( worn ).success() ) {
             continue;
         }

@@ -2140,3 +2140,84 @@ TEST_CASE( "npc_gear_up_wide_item_pool_over_starting_gear", "[npc][gear_up][.]" 
                 ( wore_tshirt_at_start && wearing( guy, itype_tshirt ) ) ? "yes" : "unknown/no" );
     }
 }
+
+TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[npc][gear_up]" )
+{
+    reset_world();
+    npc &guy = spawn_bare_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    // Recreate the exact camp item environment
+    const std::vector<itype_id> store_items = {
+        itype_id( "welding_papr_helmet" ),
+        itype_id( "hat_knit" ),
+        itype_id( "wearable_light" ),
+        itype_id( "fitover_sunglasses" ),
+        itype_id( "sunglasses" ),
+        itype_id( "throat_guard_cut_resistant" ),
+        itype_id( "scarf" ),
+        itype_id( "gloves_fingerless" ),
+        itype_id( "boots" ),
+        itype_id( "socks" ),
+        itype_id( "jeans" ),
+        itype_id( "leggings" ),
+        itype_id( "shorts" ),
+        itype_id( "armguard_soft" ),
+        itype_id( "rashguard" ), // 1st rashguard
+        itype_id( "rashguard" ), // 2nd rashguard
+        itype_id( "sweatshirt" ),
+        itype_id( "jacket_light" ),
+        itype_id( "corset" ),
+        itype_id( "apron_cotton" ),
+        itype_id( "duffelbag" ),
+        itype_id( "shotgun_d" ),
+        itype_id( "battleaxe" ),
+    };
+
+    for( const itype_id &id : store_items ) {
+        here.add_item_or_charges( tile, item( id ) );
+    }
+
+    item shells( itype_id( "shot_00" ) );
+    shells.charges = 50;
+    here.add_item_or_charges( tile, shells );
+
+    item wipes( itype_id( "alcohol_wipes" ) );
+    wipes.charges = 10;
+    here.add_item_or_charges( tile, wipes );
+
+    item pills( itype_id( "ibuprofen" ) );
+    pills.charges = 20;
+    here.add_item_or_charges( tile, pills );
+
+    run_gear_up( guy, 4000 );
+
+    item_location wielded = guy.get_wielded_item();
+    REQUIRE( wielded );
+    CHECK( wielded->typeId() == itype_id( "shotgun_d" ) );
+    CHECK( wielded->ammo_remaining() > 0 );
+
+    // Backup weapon stashed in storage
+    CHECK( count_of( guy, itype_id( "battleaxe" ) ) > 0 );
+
+    // Medical supplies collected
+    CHECK( count_of( guy, itype_id( "alcohol_wipes" ) ) > 0 );
+    CHECK( count_of( guy, itype_id( "ibuprofen" ) ) > 0 );
+
+    // Exactly one rashguard worn; no same-layer duplicate rashguards
+    CHECK( guy.amount_worn( itype_id( "rashguard" ) ) == 1 );
+
+    // Blinding welding helmet was rejected
+    CHECK( count_of( guy, itype_id( "welding_papr_helmet" ) ) == 0 );
+
+    // Check that layering penalty across all body parts is 0
+    std::map<bodypart_id, encumbrance_data> enc_vals;
+    guy.worn.item_encumb( enc_vals, item(), guy );
+    for( const bodypart_id &bp : guy.get_all_body_parts() ) {
+        const auto enc_it = enc_vals.find( bp );
+        int layer_pen = enc_it != enc_vals.end() ? enc_it->second.layer_penalty : 0;
+        CHECK( layer_pen == 0 );
+    }
+}
+
