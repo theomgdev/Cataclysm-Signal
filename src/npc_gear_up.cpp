@@ -1181,6 +1181,27 @@ bool needs_backup_blade( Character &p )
     return !found;
 }
 
+// A good melee weapon is not a substitute for a gun: reach matters, and a
+// blade that outscores every pistol on raw evaluate_weapon still cannot shoot.
+// If the camp can feed a gun and the character is not already holding one,
+// acquire it as a backup even when the primary weapon is excellent.
+bool needs_backup_gun( Character &p )
+{
+    item_location wielded = p.get_wielded_item();
+    if( wielded && wielded->is_gun() ) {
+        return false;
+    }
+    bool has_gun_carried = false;
+    p.visit_items( [&has_gun_carried]( const item * node, item * ) {
+        if( node->is_gun() ) {
+            has_gun_carried = true;
+            return VisitResponse::ABORT;
+        }
+        return VisitResponse::NEXT;
+    } );
+    return !has_gun_carried;
+}
+
 // Everything asked of a backup-blade candidate except whether some other
 // tile in reach holds a better one -- see is_weapon_upgrade() for why this
 // side must not call wants_as_backup().
@@ -1223,6 +1244,50 @@ item_location best_backup_in_reach( Character &p )
 bool wants_as_backup( Character &p, const item &it )
 {
     return is_backup_upgrade( p, it ) && best_backup_in_reach( p ).get_item() == &it;
+}
+
+// The gun counterpart to is_backup_upgrade: carries a gun into inventory as a
+// sidearm when the character already holds a melee weapon.  The gun is scored
+// with pretend ammo so a shelved empty pistol is still worth carrying -- it
+// will be loaded in the supply stage.
+bool is_backup_gun_upgrade( Character &p, const item &it )
+{
+    if( !it.is_gun() || p.gear_up_rejected.count( it.typeId() ) > 0 ||
+        !p.can_wield( it ).success() ) {
+        return false;
+    }
+    if( !gun_has_ammo_in_reach( p, it ) ) {
+        return false;
+    }
+    if( p.weight_carried() + it.weight() > p.weight_capacity() || !p.can_stash( it ) ) {
+        return false;
+    }
+    return true;
+}
+
+item_location best_backup_gun_in_reach( Character &p )
+{
+    static item_location best;
+    static time_point cached_turn = calendar::before_time_starts;
+    static character_id cached_who;
+    static unsigned int cached_generation = 0;
+    if( cached_turn == calendar::turn && cached_who == p.getID() &&
+        cached_generation == gear_up_cache_generation ) {
+        return best;
+    }
+    cached_turn = calendar::turn;
+    cached_who = p.getID();
+    cached_generation = gear_up_cache_generation;
+    best = best_candidate_in_reach( p, is_backup_gun_upgrade,
+    []( Character & who, const item & it ) {
+        return weapon_score( who, it );
+    } );
+    return best;
+}
+
+bool wants_as_backup_gun( Character &p, const item &it )
+{
+    return is_backup_gun_upgrade( p, it ) && best_backup_gun_in_reach( p ).get_item() == &it;
 }
 
 // Everything asked of a garment candidate except whether some other tile in
@@ -1525,6 +1590,7 @@ bool wanted_for_stage( Character &p, const item &it, gear_stage stage )
         // candidate, and this runs for every item in the camp.
         return wants_as_weapon( p, it ) ||
                ( needs_backup_blade( p ) && wants_as_backup( p, it ) ) ||
+               ( needs_backup_gun( p ) && wants_as_backup_gun( p, it ) ) ||
                worth_trying_on( p, it );
     }
     // A supply that could not be carried (no room, too heavy) never stops
@@ -1832,6 +1898,26 @@ bool do_equipment_stage( Character &p, const tripoint_bub_ms &tile )
                 return true;
             }
             p.gear_up_rejected.insert( blade_type );
+        }
+    }
+
+    if( needs_backup_gun( p ) ) {
+        item_location gun;
+        for( item_location &loc : pool ) {
+            if( loc && wants_as_backup_gun( p, *loc ) ) {
+                gun = loc;
+                break;
+            }
+        }
+        if( gun ) {
+            const std::string taken = gun->tname();
+            const itype_id gun_type = gun->typeId();
+            if( take_into_inventory( p, gun ) ) {
+                p.add_msg_player_or_npc( m_good, _( "You take the %s as a sidearm." ),
+                                         _( "<npcname> takes a %s as a sidearm." ), taken );
+                return true;
+            }
+            p.gear_up_rejected.insert( gun_type );
         }
     }
 
