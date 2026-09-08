@@ -393,18 +393,21 @@ double added_encumbrance( const Character &who, const item &it )
     } else {
         // The outfit as it stands is the same baseline for every candidate in
         // reach, and this is asked once per item in the camp.
-        static std::map<bodypart_id, encumbrance_data> bare;
+        static std::map<character_id, std::map<bodypart_id, encumbrance_data>> bare_cache;
         static time_point cached_turn = calendar::before_time_starts;
-        static character_id cached_who;
         static unsigned int cached_generation = 0;
-        if( cached_turn != calendar::turn || cached_who != who.getID() ||
-            cached_generation != gear_up_cache_generation ) {
+        if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
             cached_turn = calendar::turn;
-            cached_who = who.getID();
             cached_generation = gear_up_cache_generation;
-            who.worn.item_encumb( bare, item(), who );
+            bare_cache.clear();
         }
-        without = bare;
+        auto found_bare = bare_cache.find( who.getID() );
+        if( found_bare == bare_cache.end() ) {
+            std::map<bodypart_id, encumbrance_data> bare;
+            who.worn.item_encumb( bare, item(), who );
+            found_bare = bare_cache.emplace( who.getID(), std::move( bare ) ).first;
+        }
+        without = found_bare->second;
         who.worn.item_encumb( with, it, who );
     }
     double delta = 0.0;
@@ -971,24 +974,25 @@ bool is_weapon_candidate( const item &it )
 // candidate would walk the whole camp for each one.
 const std::set<ammotype> &ammo_types_in_reach( Character &who )
 {
-    static std::set<ammotype> types;
+    static std::map<character_id, std::set<ammotype>> types_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == who.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return types;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        types_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = who.getID();
-    cached_generation = gear_up_cache_generation;
-    types.clear();
+    auto it = types_cache.find( who.getID() );
+    if( it != types_cache.end() ) {
+        return it->second;
+    }
 
-    const auto note = [&]( const item & it ) {
-        if( it.is_ammo() ) {
-            types.insert( it.ammo_type() );
-        } else if( it.is_magazine() ) {
-            for( const ammotype &at : it.ammo_types() ) {
+    std::set<ammotype> types;
+    const auto note = [&]( const item & itm ) {
+        if( itm.is_ammo() ) {
+            types.insert( itm.ammo_type() );
+        } else if( itm.is_magazine() ) {
+            for( const ammotype &at : itm.ammo_types() ) {
                 types.insert( at );
             }
         }
@@ -997,8 +1001,8 @@ const std::set<ammotype> &ammo_types_in_reach( Character &who )
         note( *node );
         return VisitResponse::NEXT;
     } );
-    const auto note_pile = [&note]( item & it ) {
-        it.visit_items( [&note]( const item * node, item * ) {
+    const auto note_pile = [&note]( item & itm ) {
+        itm.visit_items( [&note]( const item * node, item * ) {
             note( *node );
             return VisitResponse::NEXT;
         } );
@@ -1010,15 +1014,15 @@ const std::set<ammotype> &ammo_types_in_reach( Character &who )
             continue;
         }
         if( const std::optional<vpart_reference> vp = here.veh_at( bub ).cargo() ) {
-            for( item &it : vp->items() ) {
-                note_pile( it );
+            for( item &itm : vp->items() ) {
+                note_pile( itm );
             }
         }
-        for( item &it : here.i_at( bub ) ) {
-            note_pile( it );
+        for( item &itm : here.i_at( bub ) ) {
+            note_pile( itm );
         }
     }
-    return types;
+    return types_cache.emplace( who.getID(), std::move( types ) ).first->second;
 }
 
 // Is there anything to feed this gun with, anywhere the character can get at?
@@ -1061,42 +1065,47 @@ double weapon_score( const Character &p, const item &it, bool pretend_ammo = tru
 // which moves during a sweep, so once a turn rather than once per item.
 double unarmed_score( const Character &p )
 {
-    static double score = 0.0;
+    static std::map<character_id, double> score_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return score;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        score_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    score = p.evaluate_weapon( null_item_reference(), false );
-    return score;
+    auto it = score_cache.find( p.getID() );
+    if( it != score_cache.end() ) {
+        return it->second;
+    }
+    const double score = p.evaluate_weapon( null_item_reference(), false );
+    return score_cache.emplace( p.getID(), score ).first->second;
 }
 
 // The bar every candidate is measured against, worked out once a turn: the
 // copy that dodges evaluate_weapon()'s cache is not free.
 double current_weapon_score( Character &p )
 {
-    static double score = 0.0;
+    struct entry {
+        itype_id weapon;
+        double score;
+    };
+    static std::map<character_id, entry> score_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
-    static itype_id cached_weapon;
     static unsigned int cached_generation = 0;
 
     item_location wielded = p.get_wielded_item();
     const itype_id now = wielded ? wielded->typeId() : itype_id::NULL_ID();
-    if( cached_turn == calendar::turn && cached_who == p.getID() && cached_weapon == now &&
-        cached_generation == gear_up_cache_generation ) {
-        return score;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        score_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_weapon = now;
-    cached_generation = gear_up_cache_generation;
-    score = wielded ? weapon_score( p, *wielded ) : unarmed_score( p );
+    auto it = score_cache.find( p.getID() );
+    if( it != score_cache.end() && it->second.weapon == now ) {
+        return it->second.score;
+    }
+    const double score = wielded ? weapon_score( p, *wielded ) : unarmed_score( p );
+    score_cache[p.getID()] = { now, score };
     return score;
 }
 
@@ -1157,22 +1166,23 @@ item_location best_candidate_in_reach( Character &p,
 
 item_location best_weapon_in_reach( Character &p )
 {
-    static item_location best;
+    static std::map<character_id, item_location> best_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return best;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    best = best_candidate_in_reach( p, is_weapon_upgrade,
-    []( Character & who, const item & it ) {
-        return weapon_score( who, it );
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, is_weapon_upgrade,
+    []( Character & who, const item & itm ) {
+        return weapon_score( who, itm );
     } );
-    return best;
+    return best_cache.emplace( p.getID(), best ).first->second;
 }
 
 // Only the single best weapon anywhere in reach counts as wanted, or the
@@ -1244,22 +1254,23 @@ bool is_backup_upgrade( Character &p, const item &it )
 
 item_location best_backup_in_reach( Character &p )
 {
-    static item_location best;
+    static std::map<character_id, item_location> best_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return best;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    best = best_candidate_in_reach( p, is_backup_upgrade,
-    []( Character & who, const item & it ) {
-        return weapon_score( who, it, false );
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, is_backup_upgrade,
+    []( Character & who, const item & itm ) {
+        return weapon_score( who, itm, false );
     } );
-    return best;
+    return best_cache.emplace( p.getID(), best ).first->second;
 }
 
 // Nothing beats a machete in a crate three tiles away like an umbrella in the
@@ -1290,22 +1301,23 @@ bool is_backup_gun_upgrade( Character &p, const item &it )
 
 item_location best_backup_gun_in_reach( Character &p )
 {
-    static item_location best;
+    static std::map<character_id, item_location> best_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return best;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    best = best_candidate_in_reach( p, is_backup_gun_upgrade,
-    []( Character & who, const item & it ) {
-        return weapon_score( who, it );
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, is_backup_gun_upgrade,
+    []( Character & who, const item & itm ) {
+        return weapon_score( who, itm );
     } );
-    return best;
+    return best_cache.emplace( p.getID(), best ).first->second;
 }
 
 bool wants_as_backup_gun( Character &p, const item &it )
@@ -1364,22 +1376,23 @@ bool is_garment_upgrade( Character &p, const item &it )
 
 item_location best_garment_in_reach( Character &p )
 {
-    static item_location best;
+    static std::map<character_id, item_location> best_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return best;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    best = best_candidate_in_reach( p, is_garment_upgrade,
-    []( Character & who, const item & it ) {
-        return wear_proxy( who, it, target_warmth_for( planning_temperature( who ) ) );
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, is_garment_upgrade,
+    []( Character & who, const item & itm ) {
+        return wear_proxy( who, itm, target_warmth_for( planning_temperature( who ) ) );
     } );
-    return best;
+    return best_cache.emplace( p.getID(), best ).first->second;
 }
 
 bool needs_storage( const Character &p )
@@ -1389,28 +1402,29 @@ bool needs_storage( const Character &p )
 
 item_location best_storage_in_reach( Character &p )
 {
-    static item_location best;
+    static std::map<character_id, item_location> best_cache;
     static time_point cached_turn = calendar::before_time_starts;
-    static character_id cached_who;
     static unsigned int cached_generation = 0;
-    if( cached_turn == calendar::turn && cached_who == p.getID() &&
-        cached_generation == gear_up_cache_generation ) {
-        return best;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
     }
-    cached_turn = calendar::turn;
-    cached_who = p.getID();
-    cached_generation = gear_up_cache_generation;
-    best = best_candidate_in_reach( p, []( Character & who, const item & it ) {
-        return it.get_volume_capacity() > 0_ml && is_garment_upgrade( who, it );
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, []( Character & who, const item & itm ) {
+        return itm.get_volume_capacity() > 0_ml && is_garment_upgrade( who, itm );
     },
-    []( Character &, const item & it ) {
+    []( Character &, const item & itm ) {
         // Ranked on the room it offers, not on wear_proxy(): this search runs
         // only while there is nowhere to put anything, and a coat that scores
         // well on armour is not the answer to that.  Everything the supply
         // stage does, and carrying a backup blade at all, waits on pockets.
-        return units::to_liter( it.get_volume_capacity() );
+        return units::to_liter( itm.get_volume_capacity() );
     } );
-    return best;
+    return best_cache.emplace( p.getID(), best ).first->second;
 }
 
 // Only the single best garment anywhere in reach counts as wanted: comparing
