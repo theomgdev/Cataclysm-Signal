@@ -818,6 +818,29 @@ item_location find_carried( Character &who, const itype_id &id )
     return {};
 }
 
+// Count all ammunition matching types on the character -- loose rounds in
+// pockets, rounds inside spare magazines, and rounds currently loaded into
+// carried or wielded guns.  visit_items() descends CONTAINER pockets only,
+// so rounds in a magazine pocket are invisible without this.
+int count_ammo_carried( const Character &who, const std::set<ammotype> &types )
+{
+    int total = 0;
+    who.visit_items( [&total, &types]( const item * node, item * ) {
+        if( node->is_ammo() && types.count( node->ammo_type() ) > 0 ) {
+            total += node->count();
+        } else if( ( node->is_gun() || node->is_magazine() ) && node->ammo_remaining() > 0 ) {
+            for( const ammotype &at : node->ammo_types() ) {
+                if( types.count( at ) > 0 ) {
+                    total += node->ammo_remaining();
+                    break;
+                }
+            }
+        }
+        return VisitResponse::NEXT;
+    } );
+    return total;
+}
+
 int count_carried( const Character &who, const std::function<bool( const item & )> &pred )
 {
     int total = 0;
@@ -1449,9 +1472,7 @@ int ammo_shortfall( Character &p )
         } );
     }
     capacity = std::max( 1, capacity );
-    const int have = count_carried( p, [&types]( const item & carried ) {
-        return carried.is_ammo() && types.count( carried.ammo_type() ) > 0;
-    } );
+    const int have = count_ammo_carried( p, types );
     return std::max( 0, capacity * want_ammo_loads - have );
 }
 

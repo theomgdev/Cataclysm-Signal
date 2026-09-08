@@ -1072,6 +1072,58 @@ TEST_CASE( "npc_gear_up_loads_the_gun_it_chose", "[npc][gear_up]" )
     CHECK( guy.get_wielded_item()->ammo_remaining() > 0 );
 }
 
+TEST_CASE( "npc_gear_up_counts_the_rounds_already_in_its_magazines", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Rounds sit in a magazine pocket, and visit_items() descends CONTAINER
+    // pockets only (visitable.cpp:477), so a character walking around with
+    // three full magazines reads as carrying no ammunition at all and empties
+    // the camp's ammo crate on top of what it already has.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    item pistol( itype_glock_19 );
+    item feed_mag( itype_glockmag );
+    feed_mag.ammo_set( itype_9mm, feed_mag.remaining_ammo_capacity() );
+    const int per_mag = feed_mag.ammo_remaining();
+    REQUIRE( per_mag > 0 );
+    REQUIRE( pistol.put_in( feed_mag, pocket_type::MAGAZINE_WELL ).success() );
+    REQUIRE( guy.wield( pistol ) );
+    REQUIRE( guy.get_wielded_item()->ammo_remaining() == per_mag );
+
+    // Two more full magazines in its pockets: loaded gun plus spares is what
+    // the order is supposed to produce, so this character is already done.
+    for( int i = 0; i < 2; ++i ) {
+        item spare( itype_glockmag );
+        spare.ammo_set( itype_9mm, spare.remaining_ammo_capacity() );
+        REQUIRE( guy.i_add( spare ) );
+    }
+
+    item crate_rounds( itype_9mm );
+    crate_rounds.charges = 200;
+    here.add_item_or_charges( tile, crate_rounds );
+
+    // Asserted against the crate, not against the character: count_of() runs on
+    // the same visit_items() that cannot see into a magazine, so counting the
+    // character would compare the bug against itself.
+    run_gear_up( guy );
+
+    int left_on_crate = 0;
+    for( const item &it : here.i_at( tile ) ) {
+        if( it.typeId() == itype_9mm ) {
+            left_on_crate += it.count();
+        }
+    }
+    // want_ammo_loads is three magazines' worth and it walked in with three
+    // full magazines, so the crate should not have been touched.
+    CHECK( left_on_crate == 200 );
+
+    REQUIRE( guy.get_wielded_item() );
+    CHECK( guy.get_wielded_item()->ammo_remaining() == per_mag );
+}
+
 TEST_CASE( "npc_gear_up_finds_its_own_storage_first", "[npc][gear_up]" )
 {
     reset_world();
