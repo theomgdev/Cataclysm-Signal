@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 #include "item_location.h"
 #include "item_pocket.h"
 #include "itype.h"
+#include "json_loader.h"
 #include "map.h"
 #include "map_helpers.h"
 #include "material.h"
@@ -145,6 +147,38 @@ void run_gear_up( avatar &you, int max_turns = 400 )
     REQUIRE( gear_up_stores_available( you ) );
     start_gear_up_from_stores( you );
     drive_gear_up( you, max_turns );
+}
+
+void run_two_gear_up_npcs( npc &guy1, npc &guy2, int max_turns = 400 )
+{
+    talk_function::gear_up_from_stores( guy1 );
+    talk_function::gear_up_from_stores( guy2 );
+
+    map &here = get_map();
+    int turns = 0;
+    auto step_one = [&]( npc & who ) {
+        if( who.activity.is_null() && !who.is_auto_moving() ) {
+            return;
+        }
+        who.set_moves( who.get_speed() );
+        if( who.is_auto_moving() ) {
+            who.setpos( here, here.get_bub( *who.destination_point ) );
+            here.build_map_cache( who.posz() );
+            who.start_destination_activity();
+        }
+        who.activity.do_turn( who );
+    };
+
+    while( ( !guy1.activity.is_null() || guy1.is_auto_moving() ||
+             !guy2.activity.is_null() || guy2.is_auto_moving() ) &&
+           turns < max_turns ) {
+        step_one( guy1 );
+        step_one( guy2 );
+        turns++;
+    }
+    if( turns >= max_turns ) {
+        FAIL( "turn count exceeded in two-NPC gear up, infinite loop possible" );
+    }
 }
 
 npc &spawn_bare_npc( const point_bub_ms &pos )
@@ -1702,6 +1736,84 @@ TEST_CASE( "npc_gear_up_pairs_a_gun_with_something_to_swing", "[npc][gear_up]" )
         CHECK( guy.get_wielded_item()->ammo_remaining() > 0 );
         CHECK( count_of( guy, itype_machete ) == 1 );
     }
+}
+
+TEST_CASE( "npc_gear_up_two_npcs_gear_up_simultaneously", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Two followers in the same camp gearing up together must not crash,
+    // lock each other into infinite loops, or both claim the single gun.
+    npc &guy1 = spawn_bare_npc( { 50, 50 } );
+    npc &guy2 = spawn_bare_npc( { 50, 52 } );
+
+    const tripoint_bub_ms tile = make_storage_zone( guy1 );
+    map &here = get_map();
+
+    // Single gun set
+    here.add_item_or_charges( tile, item( itype_glock_19 ) );
+    here.add_item_or_charges( tile, item( itype_glockmag ) );
+    item rounds( itype_9mm );
+    rounds.charges = 50;
+    here.add_item_or_charges( tile, rounds );
+
+    // Single blade
+    here.add_item_or_charges( tile, item( itype_machete ) );
+
+    // Two backpacks so both can carry things
+    here.add_item_or_charges( tile, item( itype_backpack ) );
+    here.add_item_or_charges( tile, item( itype_backpack ) );
+
+    // Clothing for two
+    here.add_item_or_charges( tile, item( itype_tshirt ) );
+    here.add_item_or_charges( tile, item( itype_tshirt ) );
+    here.add_item_or_charges( tile, item( itype_jeans ) );
+    here.add_item_or_charges( tile, item( itype_jeans ) );
+
+    run_two_gear_up_npcs( guy1, guy2 );
+
+    // Exactly one NPC got the glock, the other got the machete
+    const int guy1_glock = count_of( guy1, itype_glock_19 );
+    const int guy2_glock = count_of( guy2, itype_glock_19 );
+    CHECK( guy1_glock + guy2_glock == 1 );
+
+    const int guy1_machete = count_of( guy1, itype_machete );
+    const int guy2_machete = count_of( guy2, itype_machete );
+    CHECK( guy1_machete + guy2_machete == 1 );
+
+    // Both put on a backpack
+    CHECK( count_of( guy1, itype_backpack ) == 1 );
+    CHECK( count_of( guy2, itype_backpack ) == 1 );
+
+    // Both dressed
+    CHECK( count_of( guy1, itype_tshirt ) == 1 );
+    CHECK( count_of( guy2, itype_tshirt ) == 1 );
+    CHECK( count_of( guy1, itype_jeans ) == 1 );
+    CHECK( count_of( guy2, itype_jeans ) == 1 );
+}
+
+TEST_CASE( "npc_gear_up_state_survives_save_and_load", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Saving mid-sweep must preserve the gear_up_stage and the rejected-items
+    // blacklist, or loading in the supplies stage drops back to equipment and
+    // re-tests garments already rejected.
+    npc &guy = spawn_bare_npc( { 50, 50 } );
+    guy.gear_up_stage = 1; // supplies
+    guy.gear_up_rejected.insert( itype_machete );
+    guy.gear_up_done_reported = true;
+
+    std::ostringstream os;
+    JsonOut jsout( os );
+    guy.serialize( jsout );
+
+    npc restored;
+    restored.deserialize( json_loader::from_string( os.str() ).get_object() );
+
+    CHECK( restored.gear_up_stage == 1 );
+    CHECK( restored.gear_up_rejected.count( itype_machete ) == 1 );
+    CHECK( restored.gear_up_done_reported );
 }
 
 TEST_CASE( "npc_gear_up_reaches_a_locker_nobody_zoned", "[npc][gear_up]" )

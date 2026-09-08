@@ -2143,6 +2143,7 @@ std::unordered_set<tripoint_abs_ms> multi_gear_up_activity_actor::multi_activity
     const bool order_complete =
         wanted.empty() && you.gear_up_stage == static_cast<int>( gear_stage::supplies );
     multi_activity_actor::prune_dangerous_field_locations( wanted );
+    multi_activity_actor::prune_same_tile_locations( you, wanted );
     // Guarded the way generic_locations guards it.  A camp's store room is
     // usually windowless and loot sorting is allowed there, so this is too.
     if( !multi_activity_actor::can_do_in_dark( get_type() ) ) {

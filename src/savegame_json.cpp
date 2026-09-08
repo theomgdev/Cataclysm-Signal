@@ -774,6 +774,9 @@ void Character::load( const JsonObject &data )
     data.read( "destination_activity", destination_activity );
     data.read( "stashed_outbounds_activity", stashed_outbounds_activity );
     data.read( "stashed_outbounds_backlog", stashed_outbounds_backlog );
+    data.read( "gear_up_rejected", gear_up_rejected );
+    data.read( "gear_up_stage", gear_up_stage );
+    data.read( "gear_up_done_reported", gear_up_done_reported );
 
     // npc activity on vehicles.
     data.read( "activity_vehicle_part_index", activity_vehicle_part_index );
@@ -1428,6 +1431,15 @@ void Character::store( JsonOut &json ) const
     json.member( "stashed_outbounds_backlog", stashed_outbounds_backlog );
     json.member( "backlog", backlog );
     json.member( "activity_vehicle_part_index", activity_vehicle_part_index ); // NPC activity
+    if( !gear_up_rejected.empty() ) {
+        json.member( "gear_up_rejected", gear_up_rejected );
+    }
+    if( gear_up_stage != 0 ) {
+        json.member( "gear_up_stage", gear_up_stage );
+    }
+    if( gear_up_done_reported ) {
+        json.member( "gear_up_done_reported", gear_up_done_reported );
+    }
 
     // handling for storing activity requirements
     if( !backlog.empty() && !backlog.front().str_values.empty() && ( ( activity &&
