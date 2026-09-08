@@ -48,7 +48,10 @@
 #include "translations.h"
 #include "units.h"
 #include "value_ptr.h"
+#include "vehicle.h"
+#include "vehicle_selector.h"
 #include "visitable.h"
+#include "vpart_position.h"
 #include "weather.h"
 #include "weather_type.h"
 
@@ -500,32 +503,57 @@ bool tile_is_off_limits( const Character &who, const tripoint_bub_ms &tile )
 // zone types exist would be its own kind of fragile -- and lean on the
 // existing exceptions (NO_NPC_PICKUP, LOOT_IGNORE, favourites, someone else's
 // property, a no-go position) to keep an NPC out of what it should not touch.
+// Everywhere worth looking: every loot zone the faction owns, the basecamp's
+// own storage and food zones which do not carry the LOOT prefix, and what is
+// within arm's reach of those and of the character.
+//
+// The zones say where a camp keeps things -- specific LOOT_* zones and the big
+// general one laid over them overlap heavily, so the set deduplicates, and
+// reading them all beats relying on which specific types exist.  But a camp is
+// not only its zones: the dresser in the corner of the store room holds
+// clothes whether or not anyone drew a box round it, and getting ready for a
+// fight while a rack of armour two steps away goes unread is the order failing
+// at the one thing it is for.  Somebody caught away from their camp entirely
+// still gets what is around them, which is when being ready matters most.
+//
+// Arm's reach rather than view distance, because past that it stops being
+// "what is around me".  What keeps this honest rather than a licence to strip
+// a town is the exceptions it already leans on: NO_NPC_PICKUP, LOOT_IGNORE, a
+// no-go position, favourites, and above all somebody else's property, which
+// off_limits_item() leaves exactly where it is.
 std::unordered_set<tripoint_abs_ms> stores_within_reach( Character &who )
 {
     zone_manager &mgr = zone_manager::get_manager();
     map &here = get_map();
     const faction_id fac = who.get_faction_id();
-    std::unordered_set<tripoint_abs_ms> tiles;
 
+    std::vector<tripoint_bub_ms> anchors;
+    anchors.push_back( who.pos_bub() );
     for( const tripoint_bub_ms &tile :
          mgr.get_point_set_loot( who.pos_abs(), MAX_VIEW_DISTANCE, who.is_npc(), fac ) ) {
-        tiles.emplace( here.get_abs( tile ) );
+        anchors.push_back( tile );
     }
     for( const zone_type_id &type : {
              zone_type_CAMP_STORAGE, zone_type_CAMP_FOOD
          } ) {
         for( const tripoint_abs_ms &tile :
              mgr.get_near( type, who.pos_abs(), MAX_VIEW_DISTANCE, nullptr, fac ) ) {
-            tiles.emplace( tile );
+            anchors.push_back( here.get_bub( tile ) );
         }
     }
 
-    for( auto it = tiles.begin(); it != tiles.end(); ) {
-        const tripoint_bub_ms bub = here.get_bub( *it );
-        if( here.inbounds( bub ) && tile_is_off_limits( who, bub ) ) {
-            it = tiles.erase( it );
-        } else {
-            ++it;
+    std::unordered_set<tripoint_abs_ms> tiles;
+    for( const tripoint_bub_ms &anchor : anchors ) {
+        if( !here.inbounds( anchor ) ) {
+            // Outside the reality bubble: keep the zone tile itself so the
+            // framework can route there and decide once it can see it.
+            tiles.emplace( here.get_abs( anchor ) );
+            continue;
+        }
+        for( const tripoint_bub_ms &tile : here.points_in_radius( anchor, PICKUP_RANGE ) ) {
+            if( here.inbounds( tile ) && !tile_is_off_limits( who, tile ) ) {
+                tiles.emplace( here.get_abs( tile ) );
+            }
         }
     }
     return tiles;
@@ -584,14 +612,29 @@ std::optional<tripoint_bub_ms> home_for( Character &who, const item &it,
 // unavailable and everyone's carry weight made worse for nothing.  False
 // means even that failed, and every caller answers that by putting it down on
 // the crate rather than losing it -- also in the camp, so no worse a home.
-bool put_away( Character &who, const item &it, const tripoint_bub_ms &fallback )
+// Put one item down on a tile, into the trunk if the tile is one.  Vehicle
+// cargo and ground are the same two places candidates_at() reads from, so
+// leaving a displaced coat on the floor under the truck it came out of would
+// be the sweep unsorting the camp it just read.
+bool place_at( const tripoint_bub_ms &tile, const item &it )
 {
     map &here = get_map();
+    if( const std::optional<vpart_reference> vp = here.veh_at( tile ).cargo() ) {
+        if( vp->vehicle().add_item( here, vp->part(), it ) ) {
+            return true;
+        }
+        // A full trunk is not a lost item; the ground beside it will do.
+    }
+    return !here.add_item_or_charges( tile, it ).is_null();
+}
+
+bool put_away( Character &who, const item &it, const tripoint_bub_ms &fallback )
+{
     const std::optional<tripoint_bub_ms> home = home_for( who, it, fallback );
     if( !home ) {
         return false;
     }
-    return !here.add_item_or_charges( *home, it ).is_null();
+    return place_at( *home, it );
 }
 
 // ---------------------------------------------------------------------------
@@ -849,6 +892,10 @@ void collect_from( const Character &who, item_location parent,
 // there: the character loots whatever is within arm's reach and reports the
 // job done.  Loot sorting reads its own zone tiles without asking, and these
 // are the same tiles, in the character's own camp.
+// Ground and vehicle cargo both, the same two places zone_sorting's own
+// populate_items() reads: a camp that keeps its stores in the back of a truck
+// hands those tiles back from the zone manager like any other, and reading
+// only the ground means walking to the trunk and standing there.
 std::vector<item_location> candidates_at( Character &who, const tripoint_bub_ms &tile )
 {
     std::vector<item_location> out;
@@ -856,13 +903,20 @@ std::vector<item_location> candidates_at( Character &who, const tripoint_bub_ms 
     if( !here.inbounds( tile ) ) {
         return out;
     }
-    for( item &it : here.i_at( tile ) ) {
+    const auto offer = [&who, &out]( item & it, const item_location & loc ) {
         if( off_limits_item( who, it ) ) {
-            continue;
+            return;
         }
-        item_location loc( map_cursor( tile ), &it );
         out.push_back( loc );
         collect_from( who, loc, out, 1 );
+    };
+    if( const std::optional<vpart_reference> vp = here.veh_at( tile ).cargo() ) {
+        for( item &it : vp->items() ) {
+            offer( it, item_location( vehicle_cursor( vp->vehicle(), vp->part_index() ), &it ) );
+        }
+    }
+    for( item &it : here.i_at( tile ) ) {
+        offer( it, item_location( map_cursor( tile ), &it ) );
     }
     return out;
 }
@@ -920,17 +974,25 @@ const std::set<ammotype> &ammo_types_in_reach( Character &who )
         note( *node );
         return VisitResponse::NEXT;
     } );
+    const auto note_pile = [&note]( item & it ) {
+        it.visit_items( [&note]( const item * node, item * ) {
+            note( *node );
+            return VisitResponse::NEXT;
+        } );
+    };
     map &here = get_map();
     for( const tripoint_abs_ms &tile : stores_within_reach( who ) ) {
         const tripoint_bub_ms bub = here.get_bub( tile );
         if( !here.inbounds( bub ) ) {
             continue;
         }
+        if( const std::optional<vpart_reference> vp = here.veh_at( bub ).cargo() ) {
+            for( item &it : vp->items() ) {
+                note_pile( it );
+            }
+        }
         for( item &it : here.i_at( bub ) ) {
-            it.visit_items( [&note]( const item * node, item * ) {
-                note( *node );
-                return VisitResponse::NEXT;
-            } );
+            note_pile( it );
         }
     }
     return types;
@@ -1503,6 +1565,15 @@ bool tile_has_anything_wanted( Character &p, const tripoint_bub_ms &tile, gear_s
     if( !here.inbounds( tile ) || tile_is_off_limits( p, tile ) ) {
         return false;
     }
+    // Both the places candidates_at() draws from, or the sweep walks to a
+    // trunk it has already decided is worth visiting and finds nothing there.
+    if( const std::optional<vpart_reference> vp = here.veh_at( tile ).cargo() ) {
+        for( item &it : vp->items() ) {
+            if( !off_limits_item( p, it ) && pile_has_anything_wanted( p, it, stage, 1 ) ) {
+                return true;
+            }
+        }
+    }
     for( item &it : here.i_at( tile ) ) {
         if( !off_limits_item( p, it ) && pile_has_anything_wanted( p, it, stage, 1 ) ) {
             return true;
@@ -1519,13 +1590,11 @@ bool tile_has_anything_wanted( Character &p, const tripoint_bub_ms &tile, gear_s
 // the contents go back into the camp's zones, not onto someone's back.
 void empty_where_it_stands( Character &who, item_location &loc, const tripoint_bub_ms &tile )
 {
-    map &here = get_map();
     const std::list<item *> contents = loc->all_items_top( pocket_type::CONTAINER );
     int moved = 0;
     for( item *inner : contents ) {
         const item copy = *inner;
-        const std::optional<tripoint_bub_ms> home = home_for( who, copy, tile );
-        if( !home || here.add_item_or_charges( *home, copy ).is_null() ) {
+        if( !put_away( who, copy, tile ) ) {
             continue;
         }
         loc->remove_item( *inner );
@@ -1540,7 +1609,6 @@ void empty_where_it_stands( Character &who, item_location &loc, const tripoint_b
 // into storage.  A swapped-out pack is never discarded with its contents in it.
 void transfer_contents( Character &who, item &from, item &to, const tripoint_bub_ms &tile )
 {
-    map &here = get_map();
     const std::list<item *> contents = from.all_items_top( pocket_type::CONTAINER );
     for( item *inner : contents ) {
         const item copy = *inner;
@@ -1559,8 +1627,7 @@ void transfer_contents( Character &who, item &from, item &to, const tripoint_bub
             who.mod_moves( -handle_cost_moves );
             continue;
         }
-        const std::optional<tripoint_bub_ms> home = home_for( who, copy, tile );
-        if( home && !here.add_item_or_charges( *home, copy ).is_null() ) {
+        if( put_away( who, copy, tile ) ) {
             from.remove_item( *inner );
             who.mod_moves( -handle_cost_moves );
         }
@@ -1662,7 +1729,7 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
         // back on, contents untouched.
         if( !p.wear_item( old_worn, false, true, true, true ) &&
             !put_away( p, old_worn, tile ) ) {
-            get_map().add_item_or_charges( tile, old_worn );
+            place_at( tile, old_worn );
         }
         p.gear_up_rejected.insert( candidate_type );
         return false;
@@ -1678,7 +1745,7 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
     // Back into its zone, and failing that down on the crate it was traded at:
     // it exists only in the takeoff list here, so anything less loses it.
     if( !put_away( p, old_worn, tile ) ) {
-        get_map().add_item_or_charges( tile, old_worn );
+        place_at( tile, old_worn );
     }
     p.add_msg_player_or_npc( m_good, _( "You swap your %1$s for the %2$s." ),
                              _( "<npcname> swaps their %1$s for a %2$s." ),
@@ -1719,7 +1786,7 @@ bool do_equipment_stage( Character &p, const tripoint_bub_ms &tile )
             // storage, and failing that down on the crate being traded at.
             item removed = p.remove_weapon();
             if( !put_away( p, removed, tile ) ) {
-                get_map().add_item_or_charges( tile, removed );
+                place_at( tile, removed );
             }
             if( !wield_loc( p, best ) ) {
                 // Hands are empty and the new weapon would not come: take the

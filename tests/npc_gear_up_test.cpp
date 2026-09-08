@@ -635,21 +635,23 @@ TEST_CASE( "npc_gear_up_seeks_pockets_before_competing_with_them_on_score",
     CHECK( count_of( guy, itype_bandages ) > 0 );
 }
 
-TEST_CASE( "npc_gear_up_needs_a_zone_to_draw_from", "[npc][gear_up]" )
+TEST_CASE( "npc_gear_up_uses_what_is_there_without_a_zone", "[npc][gear_up]" )
 {
     reset_world();
 
+    // Zones say where a camp keeps things; they are not the price of being
+    // allowed to get ready.  Somebody caught away from their camp still takes
+    // the blade lying beside them, which is when it matters most.
     npc &guy = spawn_gear_up_npc( { 50, 50 } );
     map &here = get_map();
     const tripoint_bub_ms tile = guy.pos_bub() + tripoint::east;
     here.add_item_or_charges( tile, item( itype_knife_combat ) );
+    REQUIRE( zone_manager::get_manager().get_zone_at( here.get_abs( tile ) ) == nullptr );
 
-    // No zone at all: the order changes nothing rather than helping itself to
-    // whatever happens to be lying around.
     run_gear_up( guy );
 
-    CHECK( items_on( tile ) == 1 );
-    CHECK( count_of( guy, itype_knife_combat ) == 0 );
+    REQUIRE( guy.get_wielded_item() );
+    CHECK( guy.get_wielded_item()->typeId() == itype_knife_combat );
 }
 
 TEST_CASE( "npc_gear_up_terminates_when_there_is_nothing_better", "[npc][gear_up]" )
@@ -1471,6 +1473,137 @@ TEST_CASE( "npc_gear_up_leaves_the_player_s_own_zones_alone", "[npc][gear_up]" )
     // its own behind.
     CHECK( count_zones( "test_vehicle_armour" ) == 1 );
     CHECK( mgr.size() == zones_before );
+}
+
+TEST_CASE( "npc_gear_up_equips_from_a_vehicle_s_cargo", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // A camp that keeps its stores in the back of a truck is a camp, and the
+    // zone manager already hands those tiles back with the rest.  Reading only
+    // the ground means walking to the trunk and standing there.
+    npc &guy = spawn_bare_npc( { 50, 50 } );
+    map &here = get_map();
+    zone_manager &mgr = zone_manager::get_manager();
+
+    const tripoint_bub_ms veh_pos = guy.pos_bub() + tripoint::south;
+    vehicle *veh = here.add_vehicle( vehicle_prototype_car, veh_pos, 0_degrees, 0,
+                                     veh_spawn_status::UNDAMAGED );
+    REQUIRE( veh != nullptr );
+    veh->set_owner( guy.get_faction_id() );
+
+    // The roomiest cargo part, so the test is about what the sweep reads and
+    // not about a trunk that happened to be full.
+    std::optional<vpart_reference> cargo;
+    tripoint_bub_ms cargo_pos;
+    units::volume best_room = 0_ml;
+    for( const tripoint_bub_ms &p : here.points_in_radius( veh_pos, 4 ) ) {
+        const std::optional<vpart_reference> vp = here.veh_at( p ).cargo();
+        if( vp && vp->items().free_volume() > best_room ) {
+            best_room = vp->items().free_volume();
+            cargo = vp;
+            cargo_pos = p;
+        }
+    }
+    REQUIRE( cargo );
+
+    REQUIRE( veh->add_item( here, cargo->part(), item( itype_backpack ) ) );
+    REQUIRE( veh->add_item( here, cargo->part(), item( itype_jeans ) ) );
+    REQUIRE( veh->add_item( here, cargo->part(), item( itype_knife_combat ) ) );
+
+    mgr.add( "test_vehicle_stores", zone_type_CAMP_STORAGE, guy.get_faction_id(), false, true,
+             here.get_abs( cargo_pos ), here.get_abs( cargo_pos ), nullptr, true );
+    mgr.cache_data();
+
+    run_gear_up( guy );
+
+    CHECK( wearing( guy, itype_backpack ) );
+    CHECK( wearing( guy, itype_jeans ) );
+    REQUIRE( guy.get_wielded_item() );
+    CHECK( guy.get_wielded_item()->typeId() == itype_knife_combat );
+}
+
+TEST_CASE( "npc_gear_up_puts_displaced_gear_back_into_the_vehicle", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Reading a trunk is half of it.  A camp whose storage is a vehicle also
+    // wants what the sweep takes off put back in the trunk, not tipped onto
+    // the ground under it where the rain gets at it.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    map &here = get_map();
+    zone_manager &mgr = zone_manager::get_manager();
+
+    guy.worn.wear_item( guy, item( itype_tshirt ), false, false );
+    REQUIRE( wearing( guy, itype_tshirt ) );
+
+    const tripoint_bub_ms veh_pos = guy.pos_bub() + tripoint::south;
+    vehicle *veh = here.add_vehicle( vehicle_prototype_car, veh_pos, 0_degrees, 0,
+                                     veh_spawn_status::UNDAMAGED );
+    REQUIRE( veh != nullptr );
+    veh->set_owner( guy.get_faction_id() );
+
+    std::optional<vpart_reference> cargo;
+    tripoint_bub_ms cargo_pos;
+    units::volume best_room = 0_ml;
+    for( const tripoint_bub_ms &p : here.points_in_radius( veh_pos, 4 ) ) {
+        const std::optional<vpart_reference> vp = here.veh_at( p ).cargo();
+        if( vp && vp->items().free_volume() > best_room ) {
+            best_room = vp->items().free_volume();
+            cargo = vp;
+            cargo_pos = p;
+        }
+    }
+    REQUIRE( cargo );
+
+    // Kevlar beats a t-shirt on the same skin, so the shirt comes off and has
+    // to go somewhere.
+    REQUIRE( veh->add_item( here, cargo->part(), item( itype_kevlar ) ) );
+
+    mgr.add( "test_vehicle_stores", zone_type_CAMP_STORAGE, guy.get_faction_id(), false, true,
+             here.get_abs( cargo_pos ), here.get_abs( cargo_pos ), nullptr, true );
+    mgr.cache_data();
+
+    run_gear_up( guy );
+
+    REQUIRE( wearing( guy, itype_kevlar ) );
+    REQUIRE_FALSE( wearing( guy, itype_tshirt ) );
+
+    int shirts_in_cargo = 0;
+    for( item &it : cargo->items() ) {
+        if( it.typeId() == itype_tshirt ) {
+            shirts_in_cargo++;
+        }
+    }
+    CHECK( shirts_in_cargo == 1 );
+}
+
+TEST_CASE( "npc_gear_up_reaches_a_locker_nobody_zoned", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Zones are how the order is told where a camp keeps things, but a camp is
+    // not only its zones: the dresser in the corner of the room the character
+    // is standing in is within reach whether or not anyone drew a box round it.
+    // A zone still has to exist somewhere or there is no order to give.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    map &here = get_map();
+
+    const tripoint_bub_ms zoned = make_storage_zone( guy );
+    here.add_item_or_charges( zoned, item( itype_jeans ) );
+
+    const tripoint_bub_ms locker = guy.pos_bub() + tripoint( 3, 0, 0 );
+    here.furn_set( locker, furn_id( "f_locker" ) );
+    here.add_item_or_charges( locker, item( itype_kevlar ) );
+    here.add_item_or_charges( locker, item( itype_machete ) );
+    REQUIRE( zone_manager::get_manager().get_zone_at( here.get_abs( locker ) ) == nullptr );
+
+    run_gear_up( guy );
+
+    CHECK( wearing( guy, itype_jeans ) );
+    CHECK( wearing( guy, itype_kevlar ) );
+    REQUIRE( guy.get_wielded_item() );
+    CHECK( guy.get_wielded_item()->typeId() == itype_machete );
 }
 
 // ---------------------------------------------------------------------------
