@@ -5282,6 +5282,29 @@ void multi_zone_activity_actor::do_turn( player_activity &act, Character &you )
     }
 }
 
+// Cache checked-and-failed sources so the move budget makes progress across
+// turns.  At file scope rather than inside simulate_turn so that an actor
+// whose own state changes what a location offers can invalidate it; multi_zone
+// actors get cloned through the backlog, so member state would not persist.
+// Fetch activities bypass it (dynamic requirement state).
+namespace
+{
+struct multi_zone_source_cache {
+    std::unordered_set<tripoint_abs_ms> sources;
+    size_t initial_count = 0;
+    activity_id act_type = activity_id::NULL_ID();
+    tripoint_abs_ms origin;
+    character_id who;
+    unsigned int zone_count = 0;
+};
+multi_zone_source_cache zone_source_cache;
+} // namespace
+
+void multi_zone_activity_actor::invalidate_source_cache()
+{
+    zone_source_cache = multi_zone_source_cache();
+}
+
 bool multi_zone_activity_actor::simulate_turn( player_activity &act, Character &you,
         bool check_only )
 {
@@ -5296,19 +5319,7 @@ bool multi_zone_activity_actor::simulate_turn( player_activity &act, Character &
         you.mod_moves( -1 );
     }
 
-    // Cache checked-and-failed sources so the move budget makes
-    // progress across turns. Stored as a static because multi_zone
-    // actors get cloned through the backlog (member state won't
-    // persist). Fetch activities bypass it (dynamic requirement state).
-    struct source_cache {
-        std::unordered_set<tripoint_abs_ms> sources;
-        size_t initial_count = 0;
-        activity_id act_type = activity_id::NULL_ID();
-        tripoint_abs_ms origin;
-        character_id who;
-        unsigned int zone_count = 0;
-    };
-    static source_cache cache;
+    multi_zone_source_cache &cache = zone_source_cache;
 
     const bool use_cache = !check_only && current_activity != ACT_FETCH_REQUIRED;
     const unsigned int cur_zone_count = zone_manager::get_manager().size();

@@ -2082,17 +2082,12 @@ void reset_gear_up_caches()
 {
     gear_up_cache_generation++;
 
-    // multi_zone_activity_actor::simulate_turn maintains a static source cache
-    // that persists across turns until exhausted.  Bumping the zone count here
-    // forces a cache miss, making the engine re-evaluate which tiles still hold
-    // wanted items on the very next turn rather than charging through a stale list.
-    zone_manager &mgr = zone_manager::get_manager();
-    const tripoint_abs_ms dummy( 0, 0, -999 );
-    mgr.add( "simulate_turn_cache_buster", zone_type_id( "NO_NPC_PICKUP" ),
-             faction_id( "your_followers" ), false, true, dummy, dummy );
-    mgr.cache_data();
-    mgr.remove( mgr.get_zones().back() );
-    mgr.cache_data();
+    // The framework caches its work locations across turns and prunes a tile
+    // that answered "nothing here" permanently.  Which tile offers what depends
+    // on the scans just invalidated above, so that answer has to be asked
+    // again, or the sweep charges through a stale list and ends a couple of
+    // items in.
+    multi_zone_activity_actor::invalidate_source_cache();
 }
 
 void start_gear_up_from_stores( Character &who )

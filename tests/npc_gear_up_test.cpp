@@ -34,6 +34,8 @@
 #include "string_formatter.h"
 #include "type_id.h"
 #include "units.h"
+#include "vehicle.h"
+#include "vpart_position.h"
 #include "weather.h"
 
 static const efftype_id effect_sleep( "sleep" );
@@ -93,6 +95,8 @@ static const itype_id itype_trenchcoat( "trenchcoat" );
 static const itype_id itype_tshirt( "tshirt" );
 static const itype_id itype_umbrella( "umbrella" );
 static const itype_id itype_water_clean( "water_clean" );
+
+static const vproto_id vehicle_prototype_car( "car" );
 
 static const zone_type_id zone_type_CAMP_STORAGE( "CAMP_STORAGE" );
 static const zone_type_id zone_type_LOOT_ARMOR( "LOOT_ARMOR" );
@@ -1406,6 +1410,67 @@ TEST_CASE( "npc_gear_up_collects_from_multiple_separate_tiles", "[npc][gear_up]"
     REQUIRE( guy.get_wielded_item() );
     CHECK( guy.get_wielded_item()->typeId() == itype_knife_combat );
     CHECK( count_of( guy, itype_bandages ) > 0 );
+}
+
+TEST_CASE( "npc_gear_up_leaves_the_player_s_own_zones_alone", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Gearing up reads zones; it must not write them.  A vehicle loot zone is
+    // the case that catches a sweep touching the zone manager at all, because
+    // vehicle zones live in the vehicle rather than in the zone list and a
+    // careless removal takes the player's real zone with it.
+    npc &guy = spawn_bare_npc( { 50, 50 } );
+    map &here = get_map();
+    zone_manager &mgr = zone_manager::get_manager();
+
+    const tripoint_bub_ms veh_pos = guy.pos_bub() + tripoint::south;
+    vehicle *veh = here.add_vehicle( vehicle_prototype_car, veh_pos, 0_degrees, 0,
+                                     veh_spawn_status::UNDAMAGED );
+    REQUIRE( veh != nullptr );
+    veh->set_owner( guy.get_faction_id() );
+
+    std::optional<vpart_reference> cargo;
+    tripoint_bub_ms cargo_pos;
+    for( const tripoint_bub_ms &p : here.points_in_radius( veh_pos, 4 ) ) {
+        if( const std::optional<vpart_reference> vp = here.veh_at( p ).cargo() ) {
+            cargo = vp;
+            cargo_pos = p;
+            break;
+        }
+    }
+    REQUIRE( cargo );
+
+    mgr.add( "test_vehicle_armour", zone_type_LOOT_ARMOR, guy.get_faction_id(), false, true,
+             here.get_abs( cargo_pos ), here.get_abs( cargo_pos ), nullptr, true );
+    mgr.cache_data();
+
+    const auto count_zones = [&mgr]( const std::string & name ) {
+        int found = 0;
+        for( const zone_manager::ref_zone_data &zone : mgr.get_zones() ) {
+            if( zone.get().get_name() == name ) {
+                found++;
+            }
+        }
+        return found;
+    };
+    REQUIRE( count_zones( "test_vehicle_armour" ) == 1 );
+
+    // Something to find, so the sweep actually does work rather than ending on
+    // its first look around.
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    here.add_item_or_charges( tile, item( itype_backpack ) );
+    here.add_item_or_charges( tile, item( itype_jeans ) );
+    here.add_item_or_charges( tile, item( itype_knife_combat ) );
+
+    const unsigned int zones_before = mgr.size();
+
+    run_gear_up( guy );
+
+    // The player's vehicle zone is still theirs, and the sweep left nothing of
+    // its own behind.
+    CHECK( count_zones( "test_vehicle_armour" ) == 1 );
+    CHECK( mgr.size() == zones_before );
 }
 
 // ---------------------------------------------------------------------------

@@ -118,6 +118,12 @@ class multi_zone_activity_actor : public activity_actor
         // @return whether this activity should continue to the next turn
         bool simulate_turn( player_activity &act, Character &you, bool check_only );
 
+        // Drop the cached set of work locations, so the next turn asks
+        // multi_activity_locations() again.  For actors whose own state decides
+        // what a location offers, where a location skipped once is not skipped
+        // forever.
+        static void invalidate_source_cache();
+
         /** Check whether activity can be done immediately if it has requirements */
         requirement_check_result check_requirements( Character &you, activity_reason_info &act_info,
                 const tripoint_abs_ms &src, const tripoint_bub_ms &src_loc,
