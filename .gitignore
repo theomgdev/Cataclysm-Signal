@@ -256,6 +256,7 @@ VERSION.txt
 tests/objwin/tiles/pch/tests-pch.hpp.gch
 
 # Per-tool assistant instruction files stay local; AGENTS.md is the contract.
+opencode.json
 CLAUDE.md
 CURSOR.md
 GEMINI.md
@@ -263,3 +264,6 @@ COPILOT.md
 .claude/
 .cursor/
 .aider*
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
