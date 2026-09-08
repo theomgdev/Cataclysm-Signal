@@ -70,6 +70,7 @@ static const itype_id itype_hoodie( "hoodie" );
 static const itype_id itype_jacket_leather( "jacket_leather" );
 static const itype_id itype_jacket_light( "jacket_light" );
 static const itype_id itype_jeans( "jeans" );
+static const itype_id itype_katana( "katana" );
 static const itype_id itype_longbow( "longbow" );
 static const itype_id itype_longshirt( "longshirt" );
 static const itype_id itype_kevlar( "kevlar" );
@@ -1576,6 +1577,79 @@ TEST_CASE( "npc_gear_up_puts_displaced_gear_back_into_the_vehicle", "[npc][gear_
         }
     }
     CHECK( shirts_in_cargo == 1 );
+}
+
+TEST_CASE( "npc_gear_up_pairs_a_gun_with_something_to_swing", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // An hour before a fight, a rifle and nothing else is how people die: guns
+    // jam, run dry, and are useless once something is already on top of you.
+    // The pair is what the order is for, and it has to arrive at it from
+    // either side -- starting with a blade, or starting with a gun.
+    map &here = get_map();
+
+    SECTION( "already holding a blade, the camp's gun still gets taken" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        item machete( itype_machete );
+        REQUIRE( guy.wield( machete ) );
+
+        here.add_item_or_charges( tile, item( itype_glock_19 ) );
+        here.add_item_or_charges( tile, item( itype_glockmag ) );
+        item rounds( itype_9mm );
+        rounds.charges = 50;
+        here.add_item_or_charges( tile, rounds );
+
+        run_gear_up( guy );
+
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( guy.get_wielded_item()->typeId() == itype_glock_19 );
+        CHECK( guy.get_wielded_item()->ammo_remaining() > 0 );
+        // The blade it started with is still on it, not left in a crate.
+        CHECK( count_of( guy, itype_machete ) == 1 );
+    }
+
+    SECTION( "a blade that outscores the gun does not cost the character the gun" ) {
+        npc &guy = spawn_gear_up_npc( { 54, 54 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        item katana( itype_katana );
+        REQUIRE( guy.wield( katana ) );
+
+        here.add_item_or_charges( tile, item( itype_glock_19 ) );
+        here.add_item_or_charges( tile, item( itype_glockmag ) );
+        item rounds( itype_9mm );
+        rounds.charges = 50;
+        here.add_item_or_charges( tile, rounds );
+
+        run_gear_up( guy );
+
+        // Whichever way round it ends up holding them, it leaves with reach
+        // and with something for when the reach runs out.
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( count_of( guy, itype_katana ) == 1 );
+        CHECK( count_of( guy, itype_glock_19 ) == 1 );
+        CHECK( count_of( guy, itype_9mm ) > 0 );
+    }
+
+    SECTION( "given a gun and a blade on the same shelf, it leaves with both" ) {
+        npc &guy = spawn_gear_up_npc( { 52, 52 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+
+        here.add_item_or_charges( tile, item( itype_glock_19 ) );
+        here.add_item_or_charges( tile, item( itype_glockmag ) );
+        item rounds( itype_9mm );
+        rounds.charges = 50;
+        here.add_item_or_charges( tile, rounds );
+        here.add_item_or_charges( tile, item( itype_machete ) );
+
+        run_gear_up( guy );
+
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( guy.get_wielded_item()->typeId() == itype_glock_19 );
+        CHECK( guy.get_wielded_item()->ammo_remaining() > 0 );
+        CHECK( count_of( guy, itype_machete ) == 1 );
+    }
 }
 
 TEST_CASE( "npc_gear_up_reaches_a_locker_nobody_zoned", "[npc][gear_up]" )
