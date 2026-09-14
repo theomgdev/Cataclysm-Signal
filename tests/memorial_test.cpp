@@ -18,6 +18,7 @@
 #include "event.h"
 #include "event_bus.h"
 #include "filesystem.h"
+#include "map_helpers.h"
 #include "map_helpers_tests.h"
 #include "memorial_logger.h"
 #include "monster.h"
@@ -97,6 +98,9 @@ TEST_CASE( "memorials", "[memorial]" )
 {
     memorial_logger &m = get_memorial();
     m.clear();
+    // The case spawns a monster beside the avatar, so the tile has to be empty:
+    // clearing the avatar leaves whatever an earlier case left standing there.
+    clear_map_without_vision();
     clear_avatar();
     get_stats().clear();
     get_achievements().clear();

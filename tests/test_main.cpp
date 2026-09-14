@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -118,6 +120,13 @@ static void init_global_game_state( const std::vector<mod_id> &mods,
         // NOLINTNEXTLINE(misc-static-assert,cert-dcl03-c)
         cata_fatal( "Unable to make templates directory.  Check permissions." );
     }
+
+    // Achievements are keyed by avatar and outlive the run that earned them, so
+    // a user dir reused across runs makes cases that read achievement text see
+    // "previously completed by" lines from characters of earlier runs.
+    std::error_code achievement_ec;
+    std::filesystem::remove_all( PATH_INFO::achievementdir_path().get_unrelative_path(),
+                                 achievement_ec );
 
     get_options().init();
     get_options().load();
