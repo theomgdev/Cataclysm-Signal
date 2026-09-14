@@ -3449,6 +3449,13 @@ void Character::reset_bonuses()
     set_dex_bonus( 0 );
     set_per_bonus( 0 );
     set_int_bonus( 0 );
+    // These carry the share of the bonuses that hardcoded effects contributed,
+    // and reset() feeds them back in, so leaving them holds a departed effect's
+    // stat change on the character.
+    str_bonus_hardcoded = 0;
+    dex_bonus_hardcoded = 0;
+    int_bonus_hardcoded = 0;
+    per_bonus_hardcoded = 0;
 
     Creature::reset_bonuses();
 }

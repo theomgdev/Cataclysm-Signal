@@ -64,12 +64,12 @@ TEST_CASE( "fold-string" )
             /*
              0123456789abc
             */
-            "Cataclysm-Signal",
-            "是Github上的",
-            "一个开源游戏",
-            "项目，目前已",
-            "有超过16000个",
-            "PR."
+            "Cataclysm-Sig",
+            "nal是Github上",
+            "的一个开源游",
+            "戏项目，目前",
+            "已有超过16000",
+            "个PR."
         };
         check_equal( folded.begin(), folded.end(), expected.begin(), expected.end() );
     }

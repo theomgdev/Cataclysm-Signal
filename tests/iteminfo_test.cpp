@@ -2761,6 +2761,9 @@ TEST_CASE( "repairable_and_with_what_tools", "[iteminfo][repair]" )
 TEST_CASE( "disassembly_time_and_yield", "[iteminfo][disassembly]" )
 {
     clear_avatar();
+    // Wire length is printed through DISTANCE_UNITS, which otherwise follows
+    // whatever the host system's locale happens to be.
+    override_option opt_distance( "DISTANCE_UNITS", "imperial" );
 
     std::vector<iteminfo_parts> disassemble = { iteminfo_parts::DESCRIPTION_COMPONENTS_DISASSEMBLE };
 
