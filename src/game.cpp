@@ -632,6 +632,14 @@ void game::reload_tileset()
         }
     }
     try {
+        portrait_tilecontext->reinit();
+        portrait_tilecontext->load_tileset( get_option<std::string>( "PORTRAIT_TILES" ),
+                                            /*precheck=*/false, /*force=*/true,
+                                            /*pump_events=*/true, /*terrain=*/false );
+    } catch( const std::exception &err ) {
+        popup( _( "Loading the portrait tileset failed: %s" ), err.what() );
+    }
+    try {
         overmap_tilecontext->reinit();
         overmap_tilecontext->load_tileset( get_option<std::string>( "OVERMAP_TILES" ),
                                            /*precheck=*/false, /*force=*/true,
@@ -1301,6 +1309,11 @@ void game::reload_npcs()
 const kill_tracker &game::get_kill_tracker() const
 {
     return *kill_tracker_ptr;
+}
+
+void game::clear_kill_tracker() const
+{
+    kill_tracker_ptr->clear();
 }
 
 void game::create_starting_npcs()
@@ -10413,7 +10426,7 @@ void game::perhaps_add_random_npc( bool ignore_spawn_timers_and_rates )
     }
     // Create a new NPC?
 
-    double spawn_time = get_option<float>( "NPC_SPAWNTIME" );
+    const double spawn_time = overmap_buffer.get_settings( u.pos_abs_omt() ).npc_spawn_time;
     if( !ignore_spawn_timers_and_rates && spawn_time == 0.0 ) {
         return;
     }

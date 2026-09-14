@@ -85,7 +85,7 @@ TEST_CASE( "recipe_availability_has_components_and_skills", "[crafting][gui]" )
     const recipe &rec = recipe_test_tallow.obj();
     availability avail( guy, &rec );
 
-    CHECK( avail.can_craft );
+    CHECK( avail.can_craft_recipe );
     CHECK( avail.has_all_skills );
     CHECK( avail.color() == c_white );
 }
@@ -100,7 +100,7 @@ TEST_CASE( "recipe_availability_missing_component", "[crafting][gui]" )
     const recipe &rec = recipe_test_tallow.obj();
     availability avail( guy, &rec );
 
-    CHECK_FALSE( avail.can_craft );
+    CHECK_FALSE( avail.can_craft_recipe );
     CHECK( avail.color() == c_dark_gray );
 }
 
@@ -117,7 +117,7 @@ TEST_CASE( "recipe_availability_insufficient_skill", "[crafting][gui]" )
     availability avail( guy, &rec );
 
     // can_craft gates on components, not skill level (test_tallow is not practice)
-    CHECK( avail.can_craft );
+    CHECK( avail.can_craft_recipe );
     CHECK_FALSE( avail.has_all_skills );
     // cooking 0 vs difficulty 3: knowledge_level < difficulty*0.8, so no primary skill
     CHECK_FALSE( avail.crafter_has_primary_skill );
@@ -158,7 +158,7 @@ TEST_CASE( "recipe_availability_would_use_favorite", "[crafting][gui]" )
     const recipe &rec = recipe_cudgel_test_no_tools.obj();
     availability avail( guy, &rec );
 
-    CHECK( avail.can_craft );
+    CHECK( avail.can_craft_recipe );
     CHECK( avail.would_use_favorite );
     CHECK( avail.color() == c_pink );
 }
@@ -197,7 +197,7 @@ TEST_CASE( "recipe_availability_nested_craftable", "[crafting][gui]" )
     availability avail( guy, &rec );
 
     CHECK( avail.is_nested_category );
-    CHECK( avail.can_craft ); // at least one child is craftable
+    CHECK( avail.can_craft_recipe ); // at least one child is craftable
     CHECK( avail.color() == c_light_blue );
 }
 
@@ -213,7 +213,7 @@ TEST_CASE( "recipe_availability_nested_none_craftable", "[crafting][gui]" )
     availability avail( guy, &rec );
 
     CHECK( avail.is_nested_category );
-    CHECK_FALSE( avail.can_craft );
+    CHECK_FALSE( avail.can_craft_recipe );
     CHECK( avail.color() == c_blue );
 }
 
@@ -269,7 +269,7 @@ TEST_CASE( "can_start_craft_cannot_craft_no_components", "[crafting][gui]" )
     const recipe &rec = recipe_cudgel_test_no_tools.obj();
     availability avail( guy, &rec );
 
-    CHECK_FALSE( avail.can_craft );
+    CHECK_FALSE( avail.can_craft_recipe );
     CHECK( can_start_craft( rec, avail, guy ) == craft_confirm_result::cannot_craft );
 }
 
@@ -290,7 +290,7 @@ TEST_CASE( "can_start_craft_cannot_craft_no_primary_skill", "[crafting][gui]" )
 
     // Has components so can_craft is true, but primary skill is too low
     // knowledge_level(0) < difficulty(2) * 0.8 = 1.6
-    CHECK( avail.can_craft );
+    CHECK( avail.can_craft_recipe );
     CHECK_FALSE( avail.crafter_has_primary_skill );
     CHECK( can_start_craft( rec, avail, guy ) == craft_confirm_result::cannot_craft );
 }
@@ -311,7 +311,7 @@ TEST_CASE( "can_start_craft_too_dark", "[crafting][gui]" )
     const recipe &rec = recipe_cudgel_test_no_tools.obj();
     availability avail( guy, &rec );
 
-    CHECK( avail.can_craft );
+    CHECK( avail.can_craft_recipe );
     CHECK( avail.crafter_has_primary_skill );
     CHECK( can_start_craft( rec, avail, guy ) == craft_confirm_result::too_dark );
 }
@@ -358,7 +358,7 @@ TEST_CASE( "recipe_sort_craftable_before_uncraftable", "[crafting][gui]" )
 
     const recipe &rec = recipe_cudgel_test_no_tools.obj();
     availability avail_yes( guy, &rec );
-    CHECK( avail_yes.can_craft );
+    CHECK( avail_yes.can_craft_recipe );
 
     // Remove the component so a second availability is not craftable
     guy.remove_items_with( []( const item & it ) {
@@ -366,7 +366,7 @@ TEST_CASE( "recipe_sort_craftable_before_uncraftable", "[crafting][gui]" )
     } );
     guy.invalidate_crafting_inventory();
     availability avail_no( guy, &rec );
-    CHECK_FALSE( avail_no.can_craft );
+    CHECK_FALSE( avail_no.can_craft_recipe );
 
     CHECK( sort_compare( &rec, &rec, avail_yes, avail_no, guy, {},
                          true, true, false ) );
@@ -498,7 +498,7 @@ TEST_CASE( "recipe_info_basic_content", "[crafting][gui]" )
 
     const recipe &rec = recipe_test_tallow.obj();
     availability avail( guy, &rec );
-    REQUIRE( avail.can_craft );
+    REQUIRE( avail.can_craft_recipe );
     REQUIRE( avail.has_all_skills );
 
     std::vector<Character *> group = { &guy };
@@ -589,7 +589,7 @@ TEST_CASE( "recipe_info_would_use_rotten", "[crafting][gui]" )
 
     const recipe &rec = recipe_test_tallow.obj();
     availability avail( guy, &rec );
-    REQUIRE( avail.can_craft );
+    REQUIRE( avail.can_craft_recipe );
     REQUIRE( avail.would_use_rotten );
 
     std::vector<Character *> group = { &guy };
@@ -611,7 +611,7 @@ TEST_CASE( "recipe_info_would_use_favorite", "[crafting][gui]" )
 
     const recipe &rec = recipe_cudgel_test_no_tools.obj();
     availability avail( guy, &rec );
-    REQUIRE( avail.can_craft );
+    REQUIRE( avail.can_craft_recipe );
     REQUIRE( avail.would_use_favorite );
 
     std::vector<Character *> group = { &guy };
@@ -1148,7 +1148,7 @@ TEST_CASE( "build_recipe_list_sort_craftable_first", "[crafting][gui][recipe_lis
     // Craftable recipes come first in sorted order
     bool seen_uncraftable = false;
     for( const availability &entry : result.available ) {
-        if( !entry.can_craft ) {
+        if( !entry.can_craft_recipe ) {
             seen_uncraftable = true;
         } else {
             CHECK_FALSE( seen_uncraftable );

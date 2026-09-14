@@ -2710,14 +2710,7 @@ std::list<item> iexamine::get_harvest_items( const itype &type, const int plant_
 
     const auto add = [&]( const itype_id & id, const int count ) {
         item new_item( id, calendar::turn );
-        if( new_item.count_by_charges() && count > 0 ) {
-            new_item.charges *= count;
-            new_item.charges /= seed_data.fruit_div;
-            if( new_item.charges <= 0 ) {
-                new_item.charges = 1;
-            }
-            result.push_back( new_item );
-        } else if( count > 0 ) {
+        if( count > 0 ) {
             result.insert( result.begin(), count, new_item );
         }
     };
@@ -4840,45 +4833,6 @@ std::vector<const itype *> furn_t::crafting_ammo_item_types() const
         }
     }
     return output;
-}
-
-/**
-* Finds the number of charges of the first item that matches type.
-*
-* @param type       Search target.
-* @param items      Stack of items. Search stops at first match.
-*
-* @return           Number of charges.
-* */
-static int count_charges_in_list( const itype *type, const map_stack &items )
-{
-    for( const item &candidate : items ) {
-        if( candidate.type == type ) {
-            return candidate.charges;
-        }
-    }
-    return 0;
-}
-
-/**
-* Finds the number of charges of the first item that matches ammotype.
-*
-* @param ammotype   Search target.
-* @param items      Stack of items. Search stops at first match.
-* @param [out] item_type Matching type.
-*
-* @return           Number of charges.
-* */
-static int count_charges_in_list( const ammotype *ammotype, const map_stack &items,
-                                  itype_id &item_type )
-{
-    for( const item &candidate : items ) {
-        if( candidate.is_ammo() && candidate.type->ammo->type == *ammotype ) {
-            item_type = candidate.typeId();
-            return candidate.charges;
-        }
-    }
-    return 0;
 }
 
 static void reload_furniture( Character &you, const tripoint_bub_ms &examp, bool allow_unload )
