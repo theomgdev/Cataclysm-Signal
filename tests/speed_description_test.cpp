@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "cata_catch.h"
+#include "map_helpers.h"
 #include "monster.h"
 #include "mtype.h"
 #include "player_helpers.h"
@@ -37,6 +38,10 @@ TEST_CASE( "monster_speed_description", "[monster][speed_description]" )
     rng_set_engine_seed( 4242424242 );
 
     auto get_speed_string = []( const mtype_id & mon_id ) {
+        // The description scales the monster's speed against the player's move
+        // cost, which the ground they stand on feeds into, so the tile has to be
+        // clean: snow an earlier case left behind adds 100 to it.
+        clear_map_without_vision();
         clear_avatar();
         monster mon( mon_id );
         return monster::speed_description(
