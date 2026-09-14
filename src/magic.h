@@ -363,6 +363,9 @@ class spell_type
         // if vitamin is used, specifies the color of an energy
         nc_color energy_color() const;
 
+        // energy source as a string (translated)
+        std::string energy_string() const;
+
         damage_type_id dmg_type = damage_type_id::NULL_ID();
 
         // list of valid targets enum
@@ -772,6 +775,9 @@ class known_magic
         bool knows_spell() const;
         // spells known by Character
         std::vector<spell_id> spells() const;
+        // whether any known spell can currently be cast
+        bool can_cast_any_spell( const Character &guy,
+                                 std::map<magic_type_id, bool> &success_tracker );
         // gets the spell associated with the spell_id to be edited
         spell &get_spell( const spell_id &sp );
         // opens up a ui that the Character can choose a spell from

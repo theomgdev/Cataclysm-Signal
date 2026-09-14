@@ -525,7 +525,7 @@ void inventory::restack( Character &p )
 #endif
 }
 
-static int count_charges_in_list( const itype *type, const map_stack &items )
+int count_charges_in_list( const itype *type, const map_stack &items )
 {
     for( const item &candidate : items ) {
         if( candidate.type == type ) {
@@ -544,8 +544,8 @@ static int count_charges_in_list( const itype *type, const map_stack &items )
 *
 * @return           Number of charges.
 * */
-static int count_charges_in_list( const ammotype *ammotype, const map_stack &items,
-                                  itype_id &item_type )
+int count_charges_in_list( const ammotype *ammotype, const map_stack &items,
+                           itype_id &item_type )
 {
     for( const item &candidate : items ) {
         if( candidate.is_ammo() && candidate.type->ammo->type == *ammotype ) {
@@ -595,7 +595,7 @@ void inventory::form_from_zone( map &m, std::unordered_set<tripoint_abs_ms> &zon
     form_from_map( m, pts, pl, assign_invlet );
 }
 
-static bool tile_has_sufficient_sunlight( const map &m, const tripoint_bub_ms &p )
+bool tile_has_sufficient_sunlight( const map &m, const tripoint_bub_ms &p )
 {
     if( !m.is_outside( p ) || p.z() < 0 ) {
         return false;
@@ -1080,8 +1080,9 @@ int inventory::count_item( const itype_id &item_type ) const
     const itype_bin &bin = get_binned_items();
     const auto iter = bin.find( item_type );
     if( iter == bin.end() ) {
-        return num;
+        return 0;
     }
+
     for( const item *it : iter->second ) {
         num += it->count();
     }
