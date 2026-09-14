@@ -1080,8 +1080,9 @@ int inventory::count_item( const itype_id &item_type ) const
     const itype_bin &bin = get_binned_items();
     const auto iter = bin.find( item_type );
     if( iter == bin.end() ) {
-        return num;
+        return 0;
     }
+
     for( const item *it : iter->second ) {
         num += it->count();
     }
