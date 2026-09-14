@@ -216,6 +216,23 @@ void Skill::load_skill( const JsonObject &jsobj )
     sk._requires_all_traits = jsobj.get_tags( "requires_all_traits" );
     sk._requires_any_traits = jsobj.get_tags( "requires_any_traits" );
 
+    if( jsobj.has_object( "trains_stats" ) ) {
+        static const std::map<std::string, character_stat> stat_names = {
+            { "str", character_stat::STRENGTH },
+            { "dex", character_stat::DEXTERITY },
+            { "int", character_stat::INTELLIGENCE },
+            { "per", character_stat::PERCEPTION }
+        };
+        JsonObject jo_ts = jsobj.get_object( "trains_stats" );
+        for( const JsonMember member : jo_ts ) {
+            const auto stat = stat_names.find( member.name() );
+            if( stat == stat_names.end() ) {
+                jo_ts.throw_error_at( member.name(), "unknown stat" );
+            }
+            sk._trains_stats[stat->second] = member.get_float();
+        }
+    }
+
     if( sk.is_contextual_skill() ) {
         contextual_skills[sk.ident()] = sk;
     } else {

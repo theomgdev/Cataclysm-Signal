@@ -625,6 +625,17 @@ class Character : public Creature, public visitable
         int get_per_bonus() const;
         int get_int_bonus() const;
 
+        /**
+         * The points of a stat earned by practising the skills that train it.
+         * Approaches, but never reaches, the base value: a lifetime of smithing
+         * doubles your strength and no more. Derived from current skill levels,
+         * so it falls back as skills rust.
+         */
+        int get_stat_training( character_stat stat ) const;
+
+        /** Recomputes the trained stat points from the current skills. */
+        void recalc_stat_training();
+
         // Returns the current value of one of the four primary character stats: str, dex, int, or per.
         int get_primary_stat_value( scaling_stat stat ) const;
 
@@ -4246,6 +4257,10 @@ class Character : public Creature, public visitable
          * If it is nullopt, needs to be recalculated
          */
         mutable std::optional<units::mass> cached_weight_carried = std::nullopt;
+
+        /** Trained stat points, indexed by character_stat. Refreshed by recalc_stat_training(). */
+        // NOLINTNEXTLINE(cata-serialize)
+        std::array<int, 4> cached_stat_training = { 0, 0, 0, 0 };
 
         void store( JsonOut &json ) const;
         void load( const JsonObject &data );

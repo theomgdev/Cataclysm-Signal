@@ -3083,6 +3083,11 @@ void Character::reset_stats()
         update_mental_focus();
     }
 
+    mod_str_bonus( get_stat_training( character_stat::STRENGTH ) );
+    mod_dex_bonus( get_stat_training( character_stat::DEXTERITY ) );
+    mod_int_bonus( get_stat_training( character_stat::INTELLIGENCE ) );
+    mod_per_bonus( get_stat_training( character_stat::PERCEPTION ) );
+
     mod_dodge_bonus( enchantment_cache->modify_value( enchant_vals::mod::DODGE_CHANCE, 0 ) );
 
     /** @EFFECT_STR_MAX above 15 decreases Dodge bonus by 1 (NEGATIVE) */
@@ -3099,6 +3104,7 @@ void Character::reset()
 {
     // TODO: Move reset_stats here, remove it from Creature
     reset_bonuses();
+    recalc_stat_training();
     // Apply bonuses from hardcoded effects
     mod_str_bonus( str_bonus_hardcoded );
     mod_dex_bonus( dex_bonus_hardcoded );
@@ -3285,6 +3291,52 @@ int Character::get_per_bonus() const
 int Character::get_int_bonus() const
 {
     return int_bonus;
+}
+
+/**
+ * Scale of the training curve, in exercised skill levels; a skill sits at
+ * exercised_level() == level^2 * 100. Set so the first point costs about five
+ * levels of a skill the stat is central to, and reaching the last point short of
+ * doubling takes mastery of every skill that trains it.
+ */
+static constexpr float stat_training_scale = 18000.0f;
+
+int Character::get_stat_training( character_stat stat ) const
+{
+    const size_t index = static_cast<size_t>( stat );
+    return index < cached_stat_training.size() ? cached_stat_training[index] : 0;
+}
+
+void Character::recalc_stat_training()
+{
+    const std::array<int, 4> before = cached_stat_training;
+    std::array<float, 4> weighted = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for( const std::pair<const skill_id, SkillLevel> &pair : *_skills ) {
+        const SkillLevel &level = pair.second;
+        if( level.level() <= 0 ) {
+            continue;
+        }
+        const Skill &skill = pair.first.obj();
+        for( size_t i = 0; i < weighted.size(); ++i ) {
+            const float weight = skill.trains_stat( static_cast<character_stat>( i ) );
+            if( weight > 0.0f ) {
+                weighted[i] += weight * level.exercised_level();
+            }
+        }
+    }
+    const std::array<int, 4> base = { get_str_base(), get_dex_base(), get_int_base(), get_per_base() };
+    for( size_t i = 0; i < weighted.size(); ++i ) {
+        // Saturating, so a stat approaches twice its base without a hard edge that
+        // would make the cap discontinuous. Rounded down, which keeps the last
+        // point out of reach: no amount of practice quite doubles you.
+        cached_stat_training[i] = std::floor( base[i] * ( 1.0f - std::exp( -weighted[i] /
+                                              stat_training_scale ) ) );
+    }
+    if( cached_stat_training != before ) {
+        // Max HP is derived from the trained stats, so a point earned or rusted
+        // away has to reach the body parts when it happens.
+        recalc_hp();
+    }
 }
 
 int Character::get_primary_stat_value( const scaling_stat stat ) const

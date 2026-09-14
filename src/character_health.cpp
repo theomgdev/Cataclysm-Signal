@@ -377,8 +377,12 @@ void Character::recalc_hp()
     // Mutated toughness stacks with starting, by design.
     float hp_mod = 1.0f + enchantment_cache->get_value_multiply( enchant_vals::mod::MAX_HP );
     float hp_adjustment = enchantment_cache->get_value_add( enchant_vals::mod::MAX_HP );
-    calc_all_parts_hp( hp_mod, hp_adjustment, get_str_base(), get_dex_base(), get_per_base(),
-                       get_int_base(), get_lifestyle(), get_fat_to_hp() );
+    calc_all_parts_hp( hp_mod, hp_adjustment,
+                       get_str_base() + get_stat_training( character_stat::STRENGTH ),
+                       get_dex_base() + get_stat_training( character_stat::DEXTERITY ),
+                       get_per_base() + get_stat_training( character_stat::PERCEPTION ),
+                       get_int_base() + get_stat_training( character_stat::INTELLIGENCE ),
+                       get_lifestyle(), get_fat_to_hp() );
     cached_dead_state.reset();
 }
 

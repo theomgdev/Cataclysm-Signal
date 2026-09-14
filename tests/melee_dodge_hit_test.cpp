@@ -47,6 +47,9 @@ static float dodge_base_with_dex_and_skill( avatar &dummy, int dexterity, int do
     clear_character( dummy );
     dummy.set_dex_base( dexterity );
     dummy.set_skill_level( skill_dodge, dodge_skill );
+    // Dodge practice trains dexterity, which feeds back into dodge; settle that
+    // before measuring, or the baseline is a stat short of what the checks see.
+    dummy.reset();
 
     return dummy.get_dodge_base();
 }
@@ -129,7 +132,8 @@ TEST_CASE( "Character_get_dodge_base", "[character][melee][dodge][dex][skill]" )
     avatar &dummy = get_avatar();
     clear_character( dummy );
 
-    // Character::get_dodge_base is simply DEXTERITY / 2 + DODGE_SKILL
+    // Character::get_dodge_base is DEXTERITY / 2 + DODGE_SKILL, where the dexterity
+    // includes what practising dodge has trained.
     // Even with average dexterity, you can become really good at dodging
     GIVEN( "character has 8 DEX and no dodge skill" ) {
         THEN( "base dodge is 4" ) {
@@ -143,8 +147,10 @@ TEST_CASE( "Character_get_dodge_base", "[character][melee][dodge][dex][skill]" )
         }
 
         AND_WHEN( "their dodge skill increases to 8" ) {
-            THEN( "base dodge is 12" ) {
-                CHECK( dodge_base_with_dex_and_skill( dummy, 8, 8 ) == 12.0f );
+            // A point of dexterity is earned by that much dodging, and it comes
+            // back round as half a point of dodge.
+            THEN( "base dodge is 13" ) {
+                CHECK( dodge_base_with_dex_and_skill( dummy, 8, 8 ) == 13.0f );
             }
         }
     }
@@ -173,13 +179,14 @@ TEST_CASE( "Character_get_dodge_base", "[character][melee][dodge][dex][skill]" )
 
         CHECK( dodge_base_with_dex_and_skill( dummy, 6, 2 ) == 5.0f );
         CHECK( dodge_base_with_dex_and_skill( dummy, 6, 4 ) == 7.0f );
-        CHECK( dodge_base_with_dex_and_skill( dummy, 6, 6 ) == 9.0f );
-        CHECK( dodge_base_with_dex_and_skill( dummy, 6, 8 ) == 11.0f );
+        // From dodge level 6 on, the dexterity that practice earns shows up here too.
+        CHECK( dodge_base_with_dex_and_skill( dummy, 6, 6 ) == 9.5f );
+        CHECK( dodge_base_with_dex_and_skill( dummy, 6, 8 ) == 11.5f );
 
-        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 7 ) == 12.0f );
-        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 8 ) == 13.0f );
-        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 9 ) == 14.0f );
-        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 10 ) == 15.0f );
+        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 7 ) == 13.0f );
+        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 8 ) == 14.0f );
+        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 9 ) == 15.5f );
+        CHECK( dodge_base_with_dex_and_skill( dummy, 10, 10 ) == 17.0f );
     }
 }
 

@@ -30,6 +30,8 @@ struct time_info_t {
     int time_reduction_per_level = 25;
 };
 
+enum class character_stat : char;
+
 class Skill
 {
         friend class string_id<Skill>;
@@ -54,6 +56,7 @@ class Skill
         bool consumes_focus = true;
         std::set<std::string> _requires_all_traits;
         std::set<std::string> _requires_any_traits;
+        std::map<character_stat, float> _trains_stats;
     public:
         static std::vector<Skill> skills;
         static void load_skill( const JsonObject &jsobj );
@@ -108,6 +111,12 @@ class Skill
         }
         bool is_teachable() const {
             return _teachable;
+        }
+
+        /** How much practising this skill contributes to a stat, 0 if it does not train it. */
+        float trains_stat( character_stat stat ) const {
+            const auto it = _trains_stats.find( stat );
+            return it == _trains_stats.end() ? 0.0f : it->second;
         }
 
         bool operator==( const Skill &b ) const {
