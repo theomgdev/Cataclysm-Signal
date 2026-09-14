@@ -1751,7 +1751,9 @@ void spell_effect::guilt( const spell &sp, Creature &caster, const tripoint_bub_
             }
         }
 
-        guy.add_msg_if_player( msgtype, msg, z.name() );
+        if( !msg.empty() ) {
+            guy.add_msg_if_player( msgtype, msg, z.name() );
+        }
 
         // No direct modifier for guilt based on existing kills, ALL morale is already modified.
         int moraleMalus = -5 * guilt_mult;
