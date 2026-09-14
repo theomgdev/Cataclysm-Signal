@@ -3104,7 +3104,6 @@ void Character::reset()
 {
     // TODO: Move reset_stats here, remove it from Creature
     reset_bonuses();
-    recalc_stat_training();
     // Apply bonuses from hardcoded effects
     mod_str_bonus( str_bonus_hardcoded );
     mod_dex_bonus( dex_bonus_hardcoded );
@@ -3508,6 +3507,10 @@ void Character::reset_bonuses()
     dex_bonus_hardcoded = 0;
     int_bonus_hardcoded = 0;
     per_bonus_hardcoded = 0;
+    // The trained share is derived from the skills, so anything that edits them
+    // without going through reset() -- clearing a character, loading a save --
+    // would otherwise keep paying out stat points the skills no longer support.
+    recalc_stat_training();
 
     Creature::reset_bonuses();
 }
