@@ -29,6 +29,13 @@ time, so an hour spent re-deriving something already known is noise as well.
 [`AGENTS.md`](AGENTS.md) is the whole working agreement, and it is short. Read it
 before you open a pull request, whether you are a person or a model.
 
+The other half of the name is what the game is aiming at: realism, and before
+that, internal consistency. If the world says a thing exists, the rules around it
+should agree — a device you can fold up and carry is a device you can take apart
+again, and the folding solar panels now come apart into the panel, wiring and
+frame they are built from. That is the smallest possible example, and it is the
+shape the rest follows: fewer places where the game contradicts itself.
+
 Work so far has gone into performance — the crafting menu and zone auto-sort near
 large item piles — with content and mechanics of its own to follow. The game is
 single-threaded by design and runs on everything from a phone to a desktop, so
