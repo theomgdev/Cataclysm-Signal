@@ -266,6 +266,10 @@ void reset_world()
     clear_map_without_vision();
     clear_avatar();
     zone_manager::get_manager().clear();
+    // Temperature is generated for the player's position and then cached until
+    // the weather is next due, so an earlier case can leave this world cold
+    // enough to freeze the rations solid, and frozen food is food nobody packs.
+    get_weather().set_nextweather( calendar::turn );
     // Every test resets calendar::turn to the same constant and the avatar
     // cases all reuse the same singleton character, so the order's per-turn
     // scan caches need an explicit kick or a later test can be answered by a
