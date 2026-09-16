@@ -6560,6 +6560,9 @@ void map::process_items_in_submap( submap &current_submap, const tripoint_rel_sm
 std::vector<item_reference> map::item_network_connections( vehicle *power_grid )
 {
     std::vector<item_reference> result;
+    // Items that became active since the last item processing pass are still
+    // queued in the dirty set, and a cable plugged in this turn is one of them.
+    update_submaps_with_active_items();
     for( const auto &iter : submaps_with_active_items ) {
         tripoint_abs_sm const abs_pos = iter;
         const tripoint_rel_sm local_pos = abs_pos - abs_sub.xy();

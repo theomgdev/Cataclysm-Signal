@@ -44,6 +44,7 @@ static const efftype_id effect_blind( "blind" );
 
 static const itype_id fuel_type_battery( "battery" );
 static const itype_id itype_ground_solar_panel( "ground_solar_panel" );
+static const itype_id itype_test_extension_cable( "test_extension_cable" );
 static const itype_id itype_test_high_drain_lamp( "test_high_drain_lamp" );
 static const itype_id itype_test_power_cord( "test_power_cord" );
 static const itype_id itype_test_power_cord_25_loss( "test_power_cord_25_loss" );
@@ -715,6 +716,55 @@ TEST_CASE( "cable_survives_target_outside_reality_bubble", "[vehicle][power][gri
         CHECK( map_cord.has_link_data() );
         CHECK( map_cord.link().target == link_state::vehicle_port );
     }
+}
+
+TEST_CASE( "linked_tool_survives_grid_part_removal", "[vehicle][power][grid]" )
+{
+    clear_map_without_vision();
+    clear_avatar();
+    map &here = get_map();
+    Character &player_character = get_player_character();
+
+    const tripoint_bub_ms origin_pos( HALF_MAPSIZE_X + 4, HALF_MAPSIZE_Y + 4, 0 );
+    const tripoint_bub_ms keep_pos( origin_pos + tripoint::east );
+
+    // The grid's origin lands on the appliance placed last, so place the one to
+    // be removed second.
+    std::optional<item> keep_item( itype_test_storage_battery );
+    std::optional<item> origin_item( itype_test_storage_battery );
+    place_appliance( here, keep_pos, vpart_ap_test_storage_battery, player_character, keep_item );
+    place_appliance( here, origin_pos, vpart_ap_test_storage_battery, player_character, origin_item );
+
+    vehicle &grid = here.veh_at( origin_pos )->vehicle();
+    REQUIRE( grid.part_count() == 2 );
+
+    // Link to the battery, which is not at the grid's origin mount.
+    const optional_vpart_position target_vp = here.veh_at( keep_pos );
+    REQUIRE( target_vp.has_value() );
+    REQUIRE( &target_vp->vehicle() == &grid );
+
+    item cord( itype_test_extension_cable );
+    REQUIRE( cord.link_to( target_vp, link_state::vehicle_port ).success() );
+
+    const tripoint_bub_ms cord_pos( keep_pos + tripoint::east );
+    cord.link().s_bub_pos = cord_pos;
+    here.add_item( cord_pos, cord );
+    item &map_cord = here.i_at( cord_pos ).only_item();
+    REQUIRE( map_cord.has_link_data() );
+
+    // Removing the part sitting at mount 0,0 makes the grid re-origin onto the
+    // remaining part, renumbering every mount.
+    vehicle_part *origin_part = &here.veh_at( origin_pos )->part_displayed()->part();
+    grid.remove_part( *origin_part );
+    grid.part_removal_cleanup( here );
+
+    REQUIRE( here.veh_at( keep_pos ).has_value() );
+    // t_veh is not serialized, so after a reality bubble round trip the link has
+    // to be re-found from t_abs_pos and t_mount alone.
+    map_cord.link().t_veh = safe_reference<vehicle>();
+    map_cord.process( here, nullptr, cord_pos );
+
+    CHECK( map_cord.has_link_data() );
 }
 
 TEST_CASE( "off_map_solar_catchup_generates_energy", "[vehicle][power][grid]" )

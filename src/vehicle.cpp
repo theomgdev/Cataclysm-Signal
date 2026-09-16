@@ -7907,6 +7907,12 @@ void vehicle::damage_all( map &here, int dmg1, int dmg2, const damage_type_id &t
  */
 void vehicle::shift_parts( map &here, const point_rel_ms &delta )
 {
+    // Renumbering the mounts invalidates the mount every linked cable remembers,
+    // so move those along with the parts they point at.
+    for( const item_reference &item_ref : here.item_network_connections( this ) ) {
+        item_ref.item_ref->link().t_mount -= delta;
+    }
+
     // Don't invalidate the active item cache's location!
     active_items.subtract_locations( delta );
     for( vehicle_part &elem : parts ) {
