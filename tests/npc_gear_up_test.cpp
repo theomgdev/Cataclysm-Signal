@@ -87,6 +87,8 @@ static const itype_id itype_runner_bag( "runner_bag" );
 static const itype_id itype_pebble( "pebble" );
 static const itype_id itype_rock( "rock" );
 static const itype_id itype_sheet_cotton( "sheet_cotton" );
+static const itype_id itype_spear_wood( "spear_wood" );
+static const itype_id itype_dynamite( "dynamite" );
 static const itype_id itype_socks( "socks" );
 static const itype_id itype_sunglasses( "sunglasses" );
 static const itype_id itype_sandwich_cheese( "sandwich_cheese" );
@@ -411,15 +413,16 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
     }
     CHECK( torso_outerwear <= 2 );
 
-    // And none of the junk came along: a rock is not a weapon, bleach is not
-    // a drink, a crowbar is a camp tool, and a filthy shirt loses to the
-    // clean one beside it.
+    // And none of the junk came along: bleach is not a drink, a crowbar is a
+    // camp tool, and a filthy shirt loses to the clean one beside it.  The
+    // rock is not junk -- it is something to throw when the magazine is dry.
     for( const itype_id &junk : {
-             itype_rock, itype_pebble, itype_bleach, itype_sheet_cotton,
+             itype_pebble, itype_bleach, itype_sheet_cotton,
              itype_crowbar, itype_hammer, itype_2x4, itype_bottle_plastic
          } ) {
         CHECK( count_of( guy, junk ) == 0 );
     }
+    CHECK( count_of( guy, itype_rock ) > 0 );
     int filthy_worn = 0;
     guy.visit_items( [&guy, &filthy_worn]( const item * node, item * ) {
         if( guy.is_worn( *node ) && node->is_filthy() ) {
@@ -1009,6 +1012,99 @@ TEST_CASE( "npc_gear_up_picks_the_best_backup_blade_in_reach", "[npc][gear_up]" 
 
     CHECK( count_of( guy, itype_machete ) > 0 );
     CHECK( count_of( guy, itype_umbrella ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_packs_a_throwing_stock", "[npc][gear_up]" )
+{
+    reset_world();
+
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    // A melee weapon in hand, so the backup-blade stage is settled and the
+    // rocks can only arrive as a throwing stock.
+    item blade( itype_machete );
+    REQUIRE( guy.wield( blade ) );
+
+    for( int i = 0; i < 12; i++ ) {
+        here.add_item_or_charges( tile, item( itype_rock ) );
+    }
+
+    run_gear_up( guy );
+
+    // Enough to matter when the gun runs dry, not the whole pile.
+    CHECK( count_of( guy, itype_rock ) >= 3 );
+    CHECK( count_of( guy, itype_rock ) <= 8 );
+}
+
+TEST_CASE( "npc_gear_up_mixes_a_bulky_throwable_with_small_ones", "[npc][gear_up]" )
+{
+    reset_world();
+
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    item blade( itype_machete );
+    REQUIRE( guy.wield( blade ) );
+
+    // One spear's worth of budget does not use it up: taking the bulky item
+    // and stopping there leaves the character with a single throw.
+    here.add_item_or_charges( tile, item( itype_spear_wood ) );
+    for( int i = 0; i < 6; i++ ) {
+        here.add_item_or_charges( tile, item( itype_rock ) );
+    }
+
+    run_gear_up( guy );
+
+    CHECK( count_of( guy, itype_spear_wood ) + count_of( guy, itype_rock ) >= 2 );
+    // And the budget still holds: a spear plus the whole pile is a quarry.
+    CHECK( count_of( guy, itype_rock ) <= 6 );
+}
+
+TEST_CASE( "npc_gear_up_leaves_the_dynamite_on_the_shelf", "[npc][gear_up]" )
+{
+    reset_world();
+
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    item blade( itype_machete );
+    REQUIRE( guy.wield( blade ) );
+
+    // item_factory hands NPC_THROW_NOW items NPC_THROWN as well, so a stock
+    // built on that flag alone fills a pocket with live explosives.
+    here.add_item_or_charges( tile, item( itype_dynamite ) );
+    here.add_item_or_charges( tile, item( itype_rock ) );
+
+    run_gear_up( guy );
+
+    CHECK( count_of( guy, itype_dynamite ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_stocks_throwables_beside_a_wielded_javelin", "[npc][gear_up]" )
+{
+    reset_world();
+
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    // A wielded one-off is not a stock: npc_attack_throw refuses to throw the
+    // best weapon it has when there is no second copy, so this character can
+    // poke with the spear but has nothing to throw.
+    item spear( itype_spear_wood );
+    REQUIRE( guy.wield( spear ) );
+
+    for( int i = 0; i < 4; i++ ) {
+        here.add_item_or_charges( tile, item( itype_rock ) );
+    }
+
+    run_gear_up( guy );
+
+    CHECK( count_of( guy, itype_rock ) > 0 );
 }
 
 TEST_CASE( "npc_gear_up_leaves_no_unworn_clothing_debris_from_repeated_swaps",

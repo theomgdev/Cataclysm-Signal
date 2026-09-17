@@ -28,6 +28,7 @@
 #include "debug.h"
 #include "enums.h"
 #include "faction.h"
+#include "flag.h"
 #include "game.h"
 #include "game_constants.h"
 #include "item.h"
@@ -115,6 +116,17 @@ constexpr int want_quench = 400;
 constexpr int want_ammo_loads = 3;
 constexpr int want_spare_magazines = 2;
 constexpr int want_drink_vessels = 2;
+
+// A throwing stock is what buys the seconds between the magazine running dry
+// and the blade coming out, so it is budgeted by what it costs to carry
+// rather than by a count: a pocketful of rocks and a single javelin both fill
+// it.  Past this a character is hauling a quarry around for a tactic they use
+// once a fight.
+constexpr units::volume want_thrown_volume = 2_liter;
+constexpr units::mass want_thrown_weight = 2500_gram;
+// One stack should not eat the whole budget on its own, so that a crate of
+// darts still leaves room for nothing else to be wrong.
+constexpr int want_thrown_per_stack = 8;
 
 // Carrying capacity worth having: ammunition, a medical kit, a day of food
 // and water, some salvage.  Past that a liter of pocket keeps a tenth of its
@@ -1521,6 +1533,69 @@ bool wants_medical( Character &p, const item &it )
     return false;
 }
 
+// The NPC combat AI decides what it is willing to throw in
+// npc_attack_throw::can_use(); stocking anything it would refuse to throw is
+// dead weight.  NPC_THROWN is the hand-picked side of that test, so it is what
+// gets stocked -- thrown_damage cannot be one, since item_factory hands every
+// item in the game a share of its bash damage as a throwing value.  Items
+// flagged NPC_THROW_NOW arrive carrying NPC_THROWN too but mean the opposite
+// thing: a lit stick of dynamite is something to be rid of, not to stock.
+bool is_thrown_candidate( const item &it )
+{
+    return it.has_flag( flag_NPC_THROWN ) && !it.has_flag( flag_NPC_THROW_NOW ) &&
+           !it.has_flag( flag_NPC_ACTIVATE ) && !it.is_gun() && !it.is_armor() &&
+           !it.is_comestible() && !it.is_magazine() && !it.is_tool();
+}
+
+// What the character could actually throw right now.  The weapon in hand does
+// not count: npc_attack_throw::evaluate() refuses to throw the best weapon it
+// has when no second copy exists, so a lone wielded javelin is a spear, not a
+// throwing stock.
+void carried_thrown( const Character &who, units::volume &volume, units::mass &weight )
+{
+    volume = 0_ml;
+    weight = 0_gram;
+    item_location wielded = who.get_wielded_item();
+    const item *in_hand = wielded ? &*wielded : nullptr;
+    who.visit_items( [&volume, &weight, in_hand]( const item * node, item * ) {
+        if( !is_thrown_candidate( *node ) ) {
+            return VisitResponse::NEXT;
+        }
+        const int stack = std::max( 1, node->count() );
+        const int usable = node == in_hand ? stack - 1 : stack;
+        if( usable > 0 ) {
+            volume += node->volume() / stack * usable;
+            weight += node->weight() / stack * usable;
+        }
+        return VisitResponse::NEXT;
+    } );
+}
+
+// How much of this stack the budget still has room for.  A javelin costs a
+// liter apiece and a rock a quarter of one, so one budget buys a single
+// javelin or a handful of rocks without either being counted out by hand, and
+// a mixed haul falls out of the same arithmetic.
+int thrown_wanted( Character &p, const item &it )
+{
+    if( !is_thrown_candidate( it ) || p.gear_up_rejected.count( it.typeId() ) > 0 ) {
+        return 0;
+    }
+    units::volume carried_volume;
+    units::mass carried_weight;
+    carried_thrown( p, carried_volume, carried_weight );
+    const int stack = std::max( 1, it.count() );
+    const units::volume each_volume = std::max( 1_ml, it.volume() / stack );
+    const units::mass each_weight = std::max( 1_gram, it.weight() / stack );
+    const int by_volume = ( want_thrown_volume - carried_volume ) / each_volume;
+    const int by_weight = ( want_thrown_weight - carried_weight ) / each_weight;
+    return std::max( 0, std::min( { by_volume, by_weight, want_thrown_per_stack } ) );
+}
+
+bool wants_thrown( Character &p, const item &it )
+{
+    return thrown_wanted( p, it ) > 0;
+}
+
 void carried_nutrition( const Character &who, int &kcal, int &quench )
 {
     kcal = 0;
@@ -1642,7 +1717,8 @@ bool wanted_for_stage( Character &p, const item &it, gear_stage stage )
         return false;
     }
     return wants_magazine( p, it ) || wants_ammo( p, it ) ||
-           wants_medical( p, it ) || wants_rations( p, it ) || wants_as_drink( p, it );
+           wants_medical( p, it ) || wants_rations( p, it ) || wants_as_drink( p, it ) ||
+           wants_thrown( p, it );
 }
 
 // Mirrors collect_from()'s descent exactly, including where it stops: a want
@@ -2055,6 +2131,31 @@ bool do_supply_stage( Character &p, const tripoint_bub_ms &tile )
         } else {
             p.gear_up_rejected.insert( type );
         }
+    }
+
+    // Something to throw when the gun runs dry and the horde has not.  Stacks
+    // that count by charges come off a tile in one go; the rest are one item
+    // per location, so the same tile is walked more than once.
+    int thrown_taken = 0;
+    for( item_location &loc : pool ) {
+        if( !loc || !wants_thrown( p, *loc ) ) {
+            continue;
+        }
+        const int want = thrown_wanted( p, *loc );
+        const itype_id type = loc->typeId();
+        const int got = take_charges( p, loc, want );
+        if( got > 0 ) {
+            thrown_taken += got;
+        } else {
+            p.gear_up_rejected.insert( type );
+        }
+    }
+    if( thrown_taken > 0 ) {
+        p.add_msg_player_or_npc( m_good, n_gettext( "You pack %d throwable.",
+                                 "You pack %d throwables.", thrown_taken ),
+                                 n_gettext( "<npcname> packs %d throwable.",
+                                            "<npcname> packs %d throwables.", thrown_taken ), thrown_taken );
+        did_something = true;
     }
 
     // Water comes by the canteen, so the whole vessel goes along.
