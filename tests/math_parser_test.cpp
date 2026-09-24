@@ -35,6 +35,11 @@ TEST_CASE( "math_parser_parsing", "[math_parser]" )
         std::locale::global( oldloc );
         char *discard [[maybe_unused]] = std::setlocale( LC_ALL, oldloc.name().c_str() );
     } );
+    // MSVC's STL crashes constructing std::locale( "de_DE.UTF-8" ) while the C
+    // runtime locale is a non-C code page (e.g. left at ".1252" -> Turkish by an
+    // earlier set_language() call, on a Turkish-locale OS). Reset the C runtime
+    // locale first; std::locale's own construction is unaffected by it anyway.
+    char *discard_reset [[maybe_unused]] = std::setlocale( LC_ALL, "C" );
     try {
         std::locale::global( std::locale( "de_DE.UTF-8" ) );
         char *discard [[maybe_unused]] = std::setlocale( LC_ALL, "de_DE.UTF-8" );
