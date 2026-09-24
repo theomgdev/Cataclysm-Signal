@@ -37,7 +37,6 @@
 #include "field.h"
 #include "field_type.h"
 #include "game.h"
-#include "inventory.h"
 #include "item.h"
 #include "item_group.h"
 #include "item_location.h"
@@ -723,7 +722,6 @@ TEST_CASE( "npc_uses_guns", "[npc_ai]" )
     npc &hostile = spawn_npc( player_character.pos_bub().xy() + five_tiles_south, "thug" );
     hostile.clear_worn();
     hostile.invalidate_crafting_inventory();
-    hostile.inv->clear();
     hostile.remove_weapon();
     hostile.clear_mutations();
     hostile.set_body();
@@ -764,7 +762,6 @@ TEST_CASE( "npc_prefers_guns", "[npc_ai]" )
     npc &hostile = spawn_npc( player_character.pos_bub().xy() + five_tiles_south, "thug" );
     hostile.clear_worn();
     hostile.invalidate_crafting_inventory();
-    hostile.inv->clear();
     hostile.remove_weapon();
     hostile.clear_mutations();
     hostile.set_body();
@@ -818,7 +815,6 @@ TEST_CASE( "npc_extracts_weapon_from_wielded_container", "[npc_ai]" )
     npc &hostile = spawn_npc( player_character.pos_bub().xy() + five_tiles_south, "thug" );
     hostile.clear_worn();
     hostile.invalidate_crafting_inventory();
-    hostile.inv->clear();
     hostile.remove_weapon();
     hostile.clear_mutations();
     hostile.set_body();
