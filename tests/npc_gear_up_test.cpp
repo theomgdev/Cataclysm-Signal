@@ -1033,9 +1033,12 @@ TEST_CASE( "npc_gear_up_packs_a_throwing_stock", "[npc][gear_up]" )
 
     run_gear_up( guy );
 
-    // Enough to matter when the gun runs dry, not the whole pile.
-    CHECK( count_of( guy, itype_rock ) >= 3 );
-    CHECK( count_of( guy, itype_rock ) <= 8 );
+    // A rock is 657 g against a 6250 g budget, so weight binds before the 5 L
+    // one. The per-stack ceiling of 8 caps a single pickup, but loose rocks
+    // arrive one location at a time and each is measured against what is left,
+    // so the pile keeps coming until the budget is spent: nine rocks is 5913 g
+    // and a tenth does not fit.
+    CHECK( count_of( guy, itype_rock ) == 9 );
 }
 
 TEST_CASE( "npc_gear_up_mixes_a_bulky_throwable_with_small_ones", "[npc][gear_up]" )

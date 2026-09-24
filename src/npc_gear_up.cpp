@@ -121,9 +121,13 @@ constexpr int want_drink_vessels = 2;
 // and the blade coming out, so it is budgeted by what it costs to carry
 // rather than by a count: a pocketful of rocks and a single javelin both fill
 // it.  Past this a character is hauling a quarry around for a tactic they use
-// once a fight.
-constexpr units::volume want_thrown_volume = 2_liter;
-constexpr units::mass want_thrown_weight = 2500_gram;
+// once a fight.  A rock weighs 657 g, so the weight budget is what decides how
+// many of them a character leaves with; it is set to carry a stack of eight
+// rather than the three a tighter budget allows, since a character walking out
+// of the camp has the capacity to spare and runs out of throwables long before
+// it runs out of pockets.
+constexpr units::volume want_thrown_volume = 5_liter;
+constexpr units::mass want_thrown_weight = 6250_gram;
 // One stack should not eat the whole budget on its own, so that a crate of
 // darts still leaves room for nothing else to be wrong.
 constexpr int want_thrown_per_stack = 8;
