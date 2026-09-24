@@ -117,13 +117,18 @@ TEST_CASE( "capture_jsonl_byte_counter_rebase_on_existing_file", "[debug_capture
     cap.flush_trace_file();
     // Verify file size grew vs placeholder size (counter was rebased; new
     // line appended).
-    std::ifstream f( path, std::ios::ate );
-    const auto sz = f.tellg();
-    CHECK( sz > 100 );
+    {
+        std::ifstream f( path, std::ios::ate );
+        const auto sz = f.tellg();
+        CHECK( sz > 100 );
+    }
     cap.settings().trace_file.enabled = false;
     cap.on_game_shutdown();
+    // Windows refuses to unlink a file that still has an open handle, so the
+    // read above has to be scoped shut before this point or the file survives
+    // the run.
     const int rm_rc = std::remove( path.c_str() );
-    ( void )rm_rc;
+    CHECK( rm_rc == 0 );
 }
 
 TEST_CASE( "capture_json_escape_produces_valid_json", "[debug_capture]" )
@@ -197,17 +202,22 @@ TEST_CASE( "capture_trace_file_rotation", "[debug_capture]" )
     cap.push_debug_log( debugmode::DF_GAME, "second" );
     cap.flush_trace_file();
     // base rolled to .1; no stray .tmp left behind.
-    std::ifstream rolled( r1 );
-    CHECK( rolled.good() );
-    std::ifstream tmp( r2_tmp );
-    CHECK_FALSE( tmp.good() );
+    {
+        std::ifstream rolled( r1 );
+        CHECK( rolled.good() );
+        std::ifstream tmp( r2_tmp );
+        CHECK_FALSE( tmp.good() );
+    }
     cap.settings().trace_file.enabled = false;
     cap.settings().trace_file.rotate_mib = 50;
     cap.on_game_shutdown();
+    // Scoped shut above: Windows will not unlink a file while a handle on it
+    // is open, which would leave the rotated log behind after the run.
     for( const std::string &p : {
              base, r1, r2, r2_tmp
          } ) {
         const int rc = std::remove( p.c_str() );
         ( void )rc;
     }
+    CHECK_FALSE( std::ifstream( r1 ).good() );
 }
