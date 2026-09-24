@@ -718,6 +718,67 @@ TEST_CASE( "cable_survives_target_outside_reality_bubble", "[vehicle][power][gri
     }
 }
 
+TEST_CASE( "cable_to_offset_mount_survives_leaving_the_bubble", "[vehicle][power][grid]" )
+{
+    clear_map_without_vision();
+    clear_avatar();
+    map &here = get_map();
+    Character &player_character = get_player_character();
+
+    // A grid two tiles wide, so the appliance being wired to sits at a mount
+    // offset from the grid's origin rather than on top of it.
+    const tripoint_bub_ms origin_pos( HALF_MAPSIZE_X + 2, HALF_MAPSIZE_Y + 2, 0 );
+    const tripoint_bub_ms target_pos( origin_pos + tripoint::east );
+    std::optional<item> target_item( itype_test_storage_battery );
+    std::optional<item> origin_item( itype_test_storage_battery );
+    place_appliance( here, target_pos, vpart_ap_test_storage_battery, player_character,
+                     target_item );
+    place_appliance( here, origin_pos, vpart_ap_test_storage_battery, player_character,
+                     origin_item );
+
+    const optional_vpart_position target_vp = here.veh_at( target_pos );
+    REQUIRE( target_vp.has_value() );
+    REQUIRE( target_vp->vehicle().part_count() == 2 );
+    REQUIRE( target_vp->mount_pos() != point_rel_ms::zero );
+
+    item cord( itype_test_power_cord );
+    REQUIRE( cord.link_to( target_vp, link_state::vehicle_port ).success() );
+
+    // One tile away from the appliance: well inside a cord that reaches three.
+    const tripoint_bub_ms cord_pos( target_pos + tripoint::east );
+    cord.link().s_bub_pos = cord_pos;
+    here.add_item( cord_pos, cord );
+    item &map_cord = here.i_at( cord_pos ).only_item();
+    REQUIRE( map_cord.has_link_data() );
+
+    // Walking far enough away unloads the grid's submap, which leaves the link
+    // holding an out-of-bounds target position while the vehicle itself is
+    // still perfectly alive. Keep the vehicle reference so processing reaches
+    // the out-of-bounds length check instead of returning early on a lookup
+    // miss.
+    map_cord.link().t_veh = target_vp->vehicle().get_safe_reference();
+    // The grid origin sits one tile past the edge of the bubble, so the target
+    // appliance -- mounted at (1,0) -- is level with the edge and stays within
+    // the three tiles this cord reaches.
+    const tripoint_bub_ms oob_origin( -1, cord_pos.y(), cord_pos.z() );
+    map_cord.link().t_abs_pos = here.get_abs( oob_origin );
+    REQUIRE_FALSE( here.inbounds( map_cord.link().t_abs_pos ) );
+    // process_link() bails out before any length work while the stored length is
+    // negative, so give it the length the cord actually had while connected.
+    map_cord.link().length = 1;
+    REQUIRE( map_cord.link_length() >= 0 );
+
+    // Moving the cord forces the length check that the out-of-bounds branch runs.
+    // Three tiles from the target: exactly what this cord reaches, so it must
+    // hold. Adding the mount offset on top of that distance is what pushed it
+    // over the limit and cut the cable.
+    const tripoint_bub_ms moved_pos( 3, cord_pos.y(), cord_pos.z() );
+    map_cord.process( here, nullptr, moved_pos );
+
+    CHECK( map_cord.has_link_data() );
+    CHECK( map_cord.link().target == link_state::vehicle_port );
+}
+
 TEST_CASE( "linked_tool_survives_grid_part_removal", "[vehicle][power][grid]" )
 {
     clear_map_without_vision();

@@ -4000,8 +4000,8 @@ bool item::process_link( map &here, Character *carrier, const tripoint_bub_ms &p
         if( !length_check_needed ) {
             return false;
         }
-        link().length = rl_dist( here.get_abs( pos ), link().t_abs_pos ) +
-                        link().t_mount.abs().x() + link().t_mount.abs().y();
+        link().length = rl_dist( here.get_abs( pos ),
+                                 link().t_abs_pos + t_veh->coord_translate( link().t_mount ) );
         if( check_length() ) {
             return reset_link( true, carrier );
         }
