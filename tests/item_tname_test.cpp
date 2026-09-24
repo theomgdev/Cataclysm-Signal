@@ -6,6 +6,7 @@
 #include "calendar.h"
 #include "cata_catch.h"
 #include "character.h"
+#include "cata_scope_helpers.h"
 #include "color.h"
 #include "flag.h"
 #include "item.h"
@@ -974,11 +975,19 @@ TEST_CASE( "tname_i18n_order", "[item][tname][translations]" )
     backpack.set_flag( flag_FILTHY );
     REQUIRE( backpack.tname() == "<color_c_green>++</color> burnt backpack (filthy)" );
 
+    // Scope the language switch: `set_language` also rewrites the process-wide C
+    // locale on Windows (to ".1252") and reloads the global name snippets. Doing
+    // the ru -> en round trip mid-test left that global state rebuilt while the
+    // test's own objects were still alive, and the next test that touched the
+    // locale then died on a stack-cookie fail-fast (0xC0000409, surfaced as exit
+    // 127 through MSYS). eoc_test.cpp restores the language on scope exit for the
+    // same reason; keep the switch wrapped so nothing survives this test.
+    on_out_of_scope reset_lang( []() {
+        set_language( "en" );
+    } );
     set_language( "ru" );
     TranslationManager::GetInstance().LoadDocuments( { "./data/mods/TEST_DATA/lang/mo/ru/LC_MESSAGES/TEST_DATA.mo" } );
     CHECK( backpack.tname() ==
-           "<color_c_green>++</color> backpack (burnt) (filthy)" );
-
-    set_language( "en" );
+           "<color_c_green>++</color> backpack (burnt) (filthy)" );
 }
 #endif
