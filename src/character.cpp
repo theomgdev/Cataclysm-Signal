@@ -5408,7 +5408,8 @@ void Character::assign_activity( const player_activity &act )
 
     activity.start_or_resume( *this, resuming );
 
-    if( is_npc() ) {
+    // only set if the activity started without being set to null
+    if( is_npc() && activity ) {
         cancel_stashed_activity();
         npc *guy = dynamic_cast<npc *>( this );
         guy->set_attitude( NPCATT_ACTIVITY );
@@ -5477,6 +5478,13 @@ void Character::resume_backlog_activity()
         }
         activity.allow_distractions();
         backlog.pop_front();
+    }
+}
+
+void Character::process_activity()
+{
+    while( get_moves() > 0 && activity ) {
+        activity.do_turn( *this );
     }
 }
 
