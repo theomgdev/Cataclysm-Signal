@@ -1,14 +1,17 @@
 #include "activity_actor_definitions.h"
 
 #include <algorithm>
+#include <array>
 #include <climits>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <list>
 #include <map>
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -21,6 +24,7 @@
 #include "character.h"
 #include "character_attire.h"
 #include "character_id.h"
+#include "character_modifier.h"
 #include "clzones.h"
 #include "coordinates.h"
 #include "creature.h"
@@ -63,22 +67,40 @@
  * zone manager picks for it.  NPCs are given the order in conversation, the
  * avatar takes it from the zone-activities menu.
  *
- * Equipment first (weapon, backup blade, clothing), supplies second
- * (magazines, ammunition, medical, rations, water).  The stage advances only
- * once no tile offers an equipment improvement, so the weapon is settled
- * before ammunition is chosen for it.  Within clothing, pockets come first
- * while there are none: everything the supply stage does needs somewhere to
- * put what it picks up.
+ * Equipment first (weapon, backup blade, clothing, plates for a carrier),
+ * supplies second (magazines, ammunition, medical, rations, water).  The stage
+ * advances only once no tile offers an equipment improvement, so the weapon is
+ * settled before ammunition is chosen for it.  Within clothing, pockets come
+ * first while there are none: everything the supply stage does needs somewhere
+ * to put what it picks up.
+ *
+ * Clothing is judged as a whole outfit rather than piece by piece: protection
+ * that saturates, bare skin, weather and pockets on one side, and on the other
+ * what the encumbrance costs, read off the engine's own limb scores.  A change
+ * is made only when it improves that balance, and the same balance decides
+ * which worn pieces cost more than they protect and come off.
  *
  * Termination hinges on gear_up_rejected: types tried and turned down, or that
  * could not be carried, are remembered.  The engine's loop detector cannot see
  * a character circling back to the same crate, because every lap spends moves.
  */
 
+static const character_modifier_id character_modifier_limb_dodge_mod( "limb_dodge_mod" );
+static const character_modifier_id character_modifier_limb_run_cost_mod( "limb_run_cost_mod" );
+static const character_modifier_id
+character_modifier_melee_attack_roll_mod( "melee_attack_roll_mod" );
+static const character_modifier_id
+character_modifier_melee_thrown_move_balance_mod( "melee_thrown_move_balance_mod" );
+static const character_modifier_id character_modifier_reloading_move_mod( "reloading_move_mod" );
+static const character_modifier_id
+character_modifier_stamina_recovery_breathing_mod( "stamina_recovery_breathing_mod" );
+
 static const damage_type_id damage_bash( "bash" );
 static const damage_type_id damage_bullet( "bullet" );
 static const damage_type_id damage_cut( "cut" );
 static const damage_type_id damage_stab( "stab" );
+
+static const efftype_id effect_mending( "mending" );
 
 static const item_category_id item_category_weapons( "weapons" );
 
@@ -89,6 +111,11 @@ static const itype_id itype_heroin( "heroin" );
 static const itype_id itype_ibuprofen( "ibuprofen" );
 static const itype_id itype_oxycodone( "oxycodone" );
 static const itype_id itype_tramadol( "tramadol" );
+
+static const limb_score_id limb_score_block( "block" );
+static const limb_score_id limb_score_grip( "grip" );
+static const limb_score_id limb_score_reaction( "reaction" );
+static const limb_score_id limb_score_vision( "vision" );
 
 static const zone_type_id zone_type_CAMP_FOOD( "CAMP_FOOD" );
 static const zone_type_id zone_type_CAMP_STORAGE( "CAMP_STORAGE" );
@@ -147,24 +174,71 @@ constexpr double weight_storage_marginal = weight_storage_per_liter * 0.1;
 // them indefinitely whenever the camp has enough of the latter.
 constexpr double want_storage_liters_floor = 3.0;
 
+// The first liters of pocket are not one candidate among many: without them
+// nothing else the order does can be carried.  This is the extra credit for
+// reaching the floor above, spread evenly over the liters short of it.
+constexpr double weight_storage_floor = 30.0;
+
 // What exposure costs.  Bare skin is not a free baseline: cloth that stops
 // thorns, sun, weather and scrapes registers as almost no armour at all, so
 // judged on resistance alone a plain pair of jeans lands a fraction under
-// nothing and the character walks into a fight bare-legged.  A piece covering
-// skin has to beat this instead of zero; one going over something already
-// worn still has to beat the piece it displaces.
+// nothing and the character walks into a fight bare-legged.  Every body part
+// is credited for the best coverage standing in front of it.
 constexpr double weight_bare_skin = 6.0;
+// Bare skin hurts out of all proportion to the blows it takes: glass underfoot,
+// frostbitten fingers, a splinter in an eye.  No part is credited for less than
+// this share of the body.
+constexpr double share_exposure_floor = 0.05;
 
-// Extra encumbrance weight for legs (can't run) and eyes/mouth (a gas mask
-// that blinds you is not a free upgrade), scoped to the covered part.
-constexpr double weight_leg_encumbrance = 2.0;
-constexpr double weight_sense_encumbrance = 1.5;
+// Encumbrance is priced by what the engine does with it, not by its number.
+// Each body part's encumbrance bends the limb scores that dodging, movement,
+// breathing and handling are made of along a hyperbola, so the 70 on a bomb
+// suit's torso is a different order of cost from the 7 on a coat's.  What is
+// priced is the shortfall in each of those abilities, as the ln of what is
+// kept and squared: a tenth lost to a pair of boots is a nuisance, half lost to
+// a suit of armour is a collapse, and a coat on top of a pack costs more than
+// either alone.  In armour points per unit.
+constexpr double weight_efficiency_lost = 150.0;
 
 // Protection is scaled by the share of the body a piece stands in front of,
 // which for anything short of a full suit is a small fraction.  This puts the
 // result back on the same scale as the storage, warmth and encumbrance terms
 // it is added to.
 constexpr double weight_hit_share = 6.0;
+
+// Resistance counts in proportion to the hits it meets.  Once a layer stops a
+// blow, another on top of it adds little, so each damage type saturates at the
+// size of a hit it is measured against.
+constexpr size_t hit_kinds = 4;
+const std::array<std::pair<damage_type_id, double>, hit_kinds> reference_hits = { {
+        { damage_bash, 20.0 }, { damage_cut, 25.0 }, { damage_stab, 25.0 }, { damage_bullet, 40.0 }
+    }
+};
+
+// Armour is carried all day, and its mass is what the ammunition, food and
+// medicine are not carried in.
+constexpr double weight_per_kilogram = 1.0;
+
+// A swap or a new garment has to be worth this much, in the same points, to be
+// made at all: scores come from floating point, and a gain too small to see is
+// how two near-identical pieces trade places forever.  Taking something off for
+// nothing in return asks for more, since the replacement at least is a visible
+// improvement.
+constexpr double margin_garment = 1.0;
+constexpr double margin_shed = 5.0;
+
+// Gear carried in the hand -- a briefcase, a bindle -- leaves it unable to
+// hold a two-handed weapon, which is worth far more than the pockets while one
+// is in hand and still something when one may yet be.
+constexpr double weight_hands_taken_armed = 60.0;
+constexpr double weight_hands_taken = 15.0;
+
+// Environmental protection this high on the face is a respirator.
+constexpr int env_resist_respirator = 10;
+
+// A splint on a limb that is broken and not yet mending is the one piece of
+// "armour" that treats the injury.
+constexpr double weight_splint = 40.0;
 
 // Warmth is credited only while short of the planning target; past that it
 // is a smaller liability, not a bonus.
@@ -312,180 +386,436 @@ int target_warmth_for( units::temperature planning )
     return std::min( 100, static_cast<int>( ( comfort_temperature_c - c ) * warmth_per_degree ) );
 }
 
-// How warm the character already is where this piece would sit.  A whole-body
-// average would judge a scarf by an already well-covered torso.  A piece
-// already worn is measured on what is left without its own contribution, so
-// that it scores the same on the shelf as on the back -- otherwise a garment
-// and its replacement trade places forever.
-double warmth_under( const Character &who, const item &it )
+// An answer that holds for one turn of one order: dropped as soon as the turn
+// moves on or reset_gear_up_caches() is called, which is also what every
+// action the order takes does.
+template<typename Key, typename Value>
+class scan_cache
 {
-    const std::map<bodypart_id, int> warmth = who.worn.warmth( who );
-    double total = 0.0;
-    int parts = 0;
-    for( const std::pair<const bodypart_id, int> &entry : warmth ) {
-        if( it.covers( entry.first ) ) {
-            total += entry.second;
-            parts++;
+    public:
+        Value *find( const Key &key ) {
+            refresh();
+            const auto found = entries.find( key );
+            return found == entries.end() ? nullptr : &found->second;
         }
-    }
-    if( parts == 0 ) {
-        return 0.0;
-    }
-    const double mean = total / parts;
-    return who.is_worn( it ) ? std::max( 0.0, mean - it.get_warmth() ) : mean;
+        Value &store( const Key &key, Value value ) {
+            refresh();
+            return entries.insert_or_assign( key, std::move( value ) ).first->second;
+        }
+    private:
+        void refresh() {
+            if( turn != calendar::turn || generation != gear_up_cache_generation ) {
+                turn = calendar::turn;
+                generation = gear_up_cache_generation;
+                entries.clear();
+            }
+        }
+        std::map<Key, Value> entries;
+        time_point turn = calendar::before_time_starts;
+        unsigned int generation = 0;
+};
+
+using outfit_pieces = std::vector<const item *>;
+
+outfit_pieces worn_pieces( const Character &who )
+{
+    outfit_pieces pieces;
+    who.worn.inv_dump( pieces );
+    return pieces;
 }
 
-// How much of what this piece would cover is bare skin right now, as a
-// fraction of its own coverage.  Worn pieces are gathered once rather than
-// asked per body part: this runs for every candidate in the camp.
-double exposed_share( const Character &who, const item &it )
+bool contains_piece( const outfit_pieces &pieces, const item *piece )
 {
-    body_part_set clothed;
-    who.visit_items( [&who, &clothed]( const item * node, item * ) {
-        if( who.is_worn( *node ) ) {
-            clothed.unify_set( node->get_covered_body_parts() );
-        }
-        return VisitResponse::NEXT;
-    } );
-
-    int covered = 0;
-    int bare = 0;
-    for( const bodypart_id &bp : who.get_all_body_parts() ) {
-        if( !it.covers( bp ) ) {
-            continue;
-        }
-        covered++;
-        if( !clothed.test( bp.id() ) ) {
-            bare++;
-        }
-    }
-    return covered > 0 ? static_cast<double>( bare ) / covered : 0.0;
+    return std::find( pieces.begin(), pieces.end(), piece ) != pieces.end();
 }
 
-double local_encumbrance_weight( const item &it )
+double total_hit_size( const Character &who )
 {
-    if( it.covers( body_part_leg_l.id() ) || it.covers( body_part_leg_r.id() ) ) {
-        return weight_leg_encumbrance;
-    }
-    if( it.covers( body_part_eyes.id() ) || it.covers( body_part_mouth.id() ) ) {
-        return weight_sense_encumbrance;
-    }
-    return 1.0;
-}
-
-// How much of an attack this piece stands to meet, as a share of the whole
-// body.  anatomy::random_body_part() draws the struck part weighted by
-// hit_size -- a torso is 36 and an eye is 0.5 -- so that is what coverage is
-// worth.  Without it, goggles and trousers score alike and the legwear loses.
-double hit_share( const Character &who, const item &it )
-{
-    double covered = 0.0;
     double total = 0.0;
     for( const bodypart_id &bp : who.get_all_body_parts() ) {
         total += bp->hit_size;
-        if( it.covers( bp ) ) {
-            covered += bp->hit_size;
-        }
     }
-    return total > 0.0 ? covered / total : 0.0;
+    return total;
 }
 
-// What the engine would charge for putting this on, layering penalty and all.
-// outfit::item_encumb() is what calc_encumbrance() calls, asked hypothetically:
-// a second pair of sunglasses conflicts on the same sub-part at the same layer,
-// so layer_item() doubles it into the eyes.  An item's own encumbrance number
-// in isolation cannot show that, which is how a character ends up wearing two.
-double added_encumbrance( const Character &who, const item &it )
+// Plates seated in the ablative pockets of an armour piece.  They are part of
+// the armour, not its contents.
+std::vector<const item *> plates_in( const item &it )
 {
-    // A piece already worn is measured against the outfit without it; passing
-    // it as the hypothetical would count it twice and score it worse on the
-    // back than on the shelf.
-    std::map<bodypart_id, encumbrance_data> without;
-    std::map<bodypart_id, encumbrance_data> with;
-    if( who.is_worn( it ) ) {
-        std::vector<const item *> rest;
-        who.worn.inv_dump( rest );
-        std::list<item> stripped;
-        for( const item *node : rest ) {
-            if( node != &it ) {
-                stripped.push_back( *node );
+    std::vector<const item *> plates;
+    for( const item_pocket *pocket : it.get_ablative_pockets() ) {
+        if( !pocket->empty() ) {
+            plates.push_back( &pocket->front() );
+        }
+    }
+    return plates;
+}
+
+// Pockets that hold what a character carries.  A plate pocket takes plates and
+// nothing else, so it is not somewhere to put a backup blade.
+bool carries_things( const item_pocket &pocket )
+{
+    return item_pocket::ok_default_containers( pocket ) && !pocket.is_ablative();
+}
+
+// An insert for an ablative pocket: armour that cannot be worn on its own.
+bool is_plate( const item &it )
+{
+    return it.is_armor() && it.has_flag( flag_CANT_WEAR );
+}
+
+bool holds_loose_items( const item &it )
+{
+    const std::vector<const item *> plates = plates_in( it );
+    for( const item *inner : it.all_items_top( pocket_type::CONTAINER ) ) {
+        if( std::find( plates.begin(), plates.end(), inner ) == plates.end() ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A respirator or a hazmat suit is worn for what it keeps out, which the order
+// cannot see from here.  Nobody strips a gas mask for a slightly better hat.
+bool keeps_the_air_out( const item &it )
+{
+    return it.has_flag( flag_GAS_PROOF ) ||
+           ( it.covers( body_part_mouth.id() ) && it.get_env_resist() >= env_resist_respirator );
+}
+
+// Gear that makes a fight harder in ways the encumbrance model cannot see.
+bool hinders_a_fight( const item &it )
+{
+    return it.has_flag( flag_BLIND ) || it.has_flag( flag_DEAF ) || it.has_flag( flag_MUTE ) ||
+           it.has_flag( flag_FIN ) || it.has_flag( flag_REQUIRES_BALANCE ) ||
+           it.has_flag( flag_ROLLER_ONE ) || it.has_flag( flag_ROLLER_QUAD ) ||
+           it.has_flag( flag_ROLLER_INLINE ) || it.has_flag( flag_ITEM_BROKEN );
+}
+
+// A splint is armour only for a limb that is broken and not yet being mended.
+bool splints_a_break( const Character &who, const item &it )
+{
+    if( !it.has_flag( flag_SPLINT ) ) {
+        return false;
+    }
+    for( const bodypart_id &bp : who.get_all_body_parts( get_body_part_flags::only_main ) ) {
+        if( it.covers( bp ) && who.is_limb_broken( bp ) &&
+            !who.has_effect( effect_mending, bp.id() ) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// What one piece brings to an outfit, worked out once a turn.  `worth` is what
+// does not depend on the rest of the outfit: protection as the engine would
+// roll it, per body part, weighted by how often that part is the one struck.
+// Plates in an ablative pocket are armour too.
+struct garment_facts {
+    double worth = 0.0;
+    double liters = 0.0;
+    std::map<bodypart_id, double> coverage;
+    std::map<bodypart_id, int> warmth;
+    std::map<bodypart_id, std::array<double, hit_kinds>> resist;
+};
+
+// What the piece stops where it stands, per body part and damage type, as the
+// engine would roll it: resistance times the share of hits it is in the way of.
+void add_resist( const Character &who, const item &it, double scale, garment_facts &facts )
+{
+    for( const bodypart_id &bp : who.get_all_body_parts() ) {
+        if( !it.covers( bp, false ) ) {
+            continue;
+        }
+        std::array<double, hit_kinds> &stopped = facts.resist[bp];
+        for( size_t i = 0; i < hit_kinds; i++ ) {
+            stopped[i] += scale * it.get_coverage( bp ) / 100.0 *
+                          it.resist( reference_hits[i].first, false, bp );
+        }
+    }
+}
+
+const garment_facts &facts_of( const Character &who, const item &it )
+{
+    static scan_cache<std::pair<character_id, const item *>, garment_facts> cache;
+    const std::pair<character_id, const item *> key( who.getID(), &it );
+    if( const garment_facts *known = cache.find( key ) ) {
+        return *known;
+    }
+    garment_facts facts;
+    const double scale = it.has_flag( flag_FRAGILE ) ? 0.5 : 1.0;
+    add_resist( who, it, scale, facts );
+    units::mass mass = it.weight( false );
+    for( const item *plate : plates_in( it ) ) {
+        add_resist( who, *plate, scale, facts );
+        mass += plate->weight();
+    }
+    facts.worth = it.get_env_resist() * 0.2 - units::to_kilogram( mass ) * weight_per_kilogram;
+    if( it.is_filthy() ) {
+        facts.worth -= filth_penalty;
+    }
+    if( splints_a_break( who, it ) ) {
+        facts.worth += weight_splint;
+    }
+    if( it.has_flag( flag_RESTRICT_HANDS ) ) {
+        item_location wielded = who.get_wielded_item();
+        facts.worth -= wielded && wielded->is_two_handed( who ) ? weight_hands_taken_armed :
+                       weight_hands_taken;
+    }
+    facts.liters = units::to_liter( it.get_volume_capacity( carries_things ) );
+    for( const bodypart_id &bp : who.get_all_body_parts() ) {
+        if( it.covers( bp, false ) ) {
+            facts.coverage[bp] = it.get_coverage( bp ) / 100.0;
+        }
+    }
+    std::vector<std::pair<bodypart_id, int>> warmth;
+    it.get_warmth_by_bodypart( warmth );
+    for( const std::pair<bodypart_id, int> &entry : warmth ) {
+        facts.warmth[entry.first] += entry.second;
+    }
+    return cache.store( key, std::move( facts ) );
+}
+
+double storage_worth( double liters )
+{
+    const double credited = std::min( liters, want_storage_liters );
+    return credited * weight_storage_per_liter +
+           ( liters - credited ) * weight_storage_marginal +
+           weight_storage_floor * std::min( liters, want_storage_liters_floor ) /
+           want_storage_liters_floor;
+}
+
+// Pocket the character has that no worn piece accounts for.
+double unworn_liters( const Character &who )
+{
+    double liters = units::to_liter( who.volume_capacity( carries_things ) );
+    for( const item *piece : worn_pieces( who ) ) {
+        liters -= facts_of( who, *piece ).liters;
+    }
+    return std::max( 0.0, liters );
+}
+
+// What the outfit is worth with some pieces off and one more on: protection,
+// no bare skin, warmth up to what the weather asks for, pockets.  Everything
+// here is a sum over pieces except the three that saturate -- skin, warmth and
+// storage -- which is why it is asked of the whole outfit.
+double outfit_worth( Character &who, const outfit_pieces &removing, const item *adding )
+{
+    const double total_hit = total_hit_size( who );
+    const int target_warmth = target_warmth_for( planning_temperature( who ) );
+    std::map<bodypart_id, double> best_cover;
+    std::map<bodypart_id, int> warmth;
+    std::map<bodypart_id, std::array<double, hit_kinds>> layered;
+    double worth = 0.0;
+    double liters = unworn_liters( who );
+    const auto count = [&]( const garment_facts & facts ) {
+        worth += facts.worth;
+        liters += facts.liters;
+        for( const std::pair<const bodypart_id, std::array<double, hit_kinds>> &stopped :
+             facts.resist ) {
+            std::array<double, hit_kinds> &sum = layered[stopped.first];
+            for( size_t i = 0; i < sum.size(); i++ ) {
+                sum[i] += stopped.second[i];
             }
         }
-        outfit( stripped ).item_encumb( without, item(), who );
-        who.worn.item_encumb( with, item(), who );
-    } else {
-        // The outfit as it stands is the same baseline for every candidate in
-        // reach, and this is asked once per item in the camp.
-        static std::map<character_id, std::map<bodypart_id, encumbrance_data>> bare_cache;
-        static time_point cached_turn = calendar::before_time_starts;
-        static unsigned int cached_generation = 0;
-        if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
-            cached_turn = calendar::turn;
-            cached_generation = gear_up_cache_generation;
-            bare_cache.clear();
+        for( const std::pair<const bodypart_id, double> &cover : facts.coverage ) {
+            best_cover[cover.first] = std::max( best_cover[cover.first], cover.second );
         }
-        auto found_bare = bare_cache.find( who.getID() );
-        if( found_bare == bare_cache.end() ) {
-            std::map<bodypart_id, encumbrance_data> bare;
-            who.worn.item_encumb( bare, item(), who );
-            found_bare = bare_cache.emplace( who.getID(), std::move( bare ) ).first;
+        for( const std::pair<const bodypart_id, int> &heat : facts.warmth ) {
+            warmth[heat.first] += heat.second;
         }
-        without = found_bare->second;
-        who.worn.item_encumb( with, it, who );
-    }
-    double delta = 0.0;
-    for( const std::pair<const bodypart_id, encumbrance_data> &entry : with ) {
-        const auto found = without.find( entry.first );
-        const int before = found != without.end() ? found->second.encumbrance : 0;
-        const double gain = entry.second.encumbrance - before;
-        if( gain > 0.0 ) {
-            delta += gain * local_encumbrance_weight( it );
+    };
+    for( const item *piece : worn_pieces( who ) ) {
+        if( !contains_piece( removing, piece ) ) {
+            count( facts_of( who, *piece ) );
         }
     }
-    return delta;
+    if( adding ) {
+        count( facts_of( who, *adding ) );
+    }
+    for( const bodypart_id &bp : who.get_all_body_parts() ) {
+        const double share = bp->hit_size / total_hit;
+        const std::array<double, hit_kinds> &stopped = layered[bp];
+        for( size_t i = 0; i < stopped.size(); i++ ) {
+            const double hit = reference_hits[i].second;
+            worth += share * weight_hit_share * hit * ( 1.0 - std::exp( -stopped[i] / hit ) );
+        }
+        worth += std::max( share, share_exposure_floor ) * weight_bare_skin * weight_hit_share *
+                 best_cover[bp];
+        const int heat = warmth[bp];
+        worth += share * ( heat <= target_warmth
+                           ? heat * weight_warmth_needed
+                           : target_warmth * weight_warmth_needed -
+                           ( heat - target_warmth ) * weight_warmth_excess );
+    }
+    return worth + storage_worth( liters );
 }
 
-// The score clothing decisions are made on.  Protection is valued the way
-// npc::estimate_armour() values it -- the same four damage types summed -- but
-// weighted by how much of the body the piece actually stands in front of,
-// because that is how the engine picks what gets hit.  Fit and sizing need no
-// term of their own, because get_encumber() already charges wrong-size and
-// unfitted garments extra.
-double wear_proxy( const Character &who, const item &it, int target_warmth )
+// The outfit as it would be with some pieces off, kept whole so that the
+// encumbrance the engine would charge, contents and layering included, can be
+// asked of it for every candidate without copying the character's pack each
+// time.  Mutable only so that measure_form() can lend it to the character.
+outfit &outfit_without( const Character &who, outfit_pieces without )
 {
-    double resist = it.resist( damage_bash ) + it.resist( damage_cut ) +
-                    it.resist( damage_stab ) + it.resist( damage_bullet );
-    resist *= it.get_avg_coverage() / 100.0;
-    resist *= hit_share( who, it ) * weight_hit_share;
-
-    // Storage is judged against what the character carries *without* this
-    // piece, or a worn pack scores lower than its unworn twin and the two
-    // trade places forever.
-    const double item_liters = units::to_liter( it.get_volume_capacity() );
-    double current_liters = units::to_liter( who.volume_capacity() );
-    if( who.is_worn( it ) ) {
-        current_liters = std::max( 0.0, current_liters - item_liters );
+    static scan_cache<std::pair<character_id, outfit_pieces>, outfit> cache;
+    std::sort( without.begin(), without.end(), std::less<const item *>() );
+    const std::pair<character_id, outfit_pieces> key( who.getID(), without );
+    if( outfit *known = cache.find( key ) ) {
+        return *known;
     }
-    const double room_left = std::max( 0.0, want_storage_liters - current_liters );
-    const double credited_liters = std::min( item_liters, room_left );
-    const double storage = credited_liters * weight_storage_per_liter +
-                           ( item_liters - credited_liters ) * weight_storage_marginal;
-
-    // Asked of the engine rather than read off the item, so that stacking a
-    // second piece onto an occupied layer costs what it really costs.
-    const double enc = added_encumbrance( who, it ) * 0.5;
-
-    const double warmth_gap = target_warmth - warmth_under( who, it );
-    const double warmth = warmth_gap > 0
-                          ? std::min<double>( it.get_warmth(), warmth_gap ) * weight_warmth_needed
-                          : -it.get_warmth() * weight_warmth_excess;
-
-    double proxy = resist + storage - enc + warmth + it.get_env_resist() * 0.2;
-    if( it.is_filthy() ) {
-        proxy -= filth_penalty;
+    std::list<item> kept;
+    for( const item *piece : worn_pieces( who ) ) {
+        if( !contains_piece( without, piece ) ) {
+            kept.push_back( *piece );
+        }
     }
-    return proxy;
+    return cache.store( key, outfit( kept ) );
 }
+
+// How well a character does the things a fight is made of.  Every field is
+// "bigger is better"; costs are stored inverted.
+struct fighting_form {
+    double dodging = 0.0;
+    double melee_hit = 0.0;
+    double melee_speed = 0.0;
+    double movement = 0.0;
+    double stamina = 0.0;
+    double blocking = 0.0;
+    double handling = 0.0;
+    double sight = 0.0;
+    double grip = 0.0;
+};
+
+// Lets the engine's own limb scores and character modifiers speak for the
+// outfit with some pieces off and one more on, then puts back what the
+// character really wears.  Mutations, body mass, wounds and effects are
+// therefore in the answer without being modelled here.
+fighting_form measure_form( Character &who, const outfit_pieces &removing, const item *adding )
+{
+    outfit *hypothetical = removing.empty() ? nullptr : &outfit_without( who, removing );
+    if( hypothetical ) {
+        std::swap( who.worn, *hypothetical );
+    }
+    who.calc_encumbrance( adding ? *adding : null_item_reference() );
+    const auto inverse = []( double cost ) {
+        return cost > std::numeric_limits<float>::epsilon() ? 1.0 / cost : 0.0;
+    };
+    fighting_form form;
+    form.dodging = who.get_modifier( character_modifier_limb_dodge_mod ) *
+                   who.get_limb_score( limb_score_reaction );
+    form.melee_hit = who.get_modifier( character_modifier_melee_attack_roll_mod );
+    form.melee_speed =
+        inverse( who.get_modifier( character_modifier_melee_thrown_move_balance_mod ) );
+    form.movement = inverse( who.get_modifier( character_modifier_limb_run_cost_mod ) );
+    form.stamina = who.get_modifier( character_modifier_stamina_recovery_breathing_mod );
+    form.blocking = who.get_limb_score( limb_score_block );
+    form.handling = inverse( who.get_modifier( character_modifier_reloading_move_mod ) );
+    form.sight = who.get_limb_score( limb_score_vision );
+    form.grip = who.get_limb_score( limb_score_grip );
+    if( hypothetical ) {
+        std::swap( who.worn, *hypothetical );
+    }
+    who.calc_encumbrance();
+    return form;
+}
+
+// How much of the coming fight is shooting: a gun in hand is all of it, one in
+// the pack half.
+double shooting_share( const Character &who )
+{
+    static scan_cache<character_id, double> cache;
+    if( const double *known = cache.find( who.getID() ) ) {
+        return *known;
+    }
+    double share = 0.0;
+    item_location wielded = who.get_wielded_item();
+    if( wielded && wielded->is_gun() ) {
+        share = 1.0;
+    } else {
+        who.visit_items( [&share]( const item * node, item * ) {
+            if( node->is_gun() ) {
+                share = 0.5;
+                return VisitResponse::ABORT;
+            }
+            return VisitResponse::NEXT;
+        } );
+    }
+    return cache.store( who.getID(), share );
+}
+
+// Unclothed, with whatever the character's own body and mutations already cost.
+const fighting_form &unencumbered_form( Character &who )
+{
+    static scan_cache<character_id, fighting_form> cache;
+    if( const fighting_form *known = cache.find( who.getID() ) ) {
+        return *known;
+    }
+    return cache.store( who.getID(), measure_form( who, worn_pieces( who ), nullptr ) );
+}
+
+// What an outfit's encumbrance costs, in armour points.
+double efficiency_lost( Character &who, const outfit_pieces &removing, const item *adding )
+{
+    const fighting_form &whole = unencumbered_form( who );
+    const fighting_form kept = measure_form( who, removing, adding );
+    const double shooting = shooting_share( who );
+    // A limb pushed past what it can bear scores nothing, which would be a
+    // loss without end; this is as bad as it is allowed to read.
+    constexpr double least_kept = 0.02;
+    const auto lost = []( double was, double now, double weight ) {
+        if( was <= 0.0 ) {
+            return 0.0;
+        }
+        const double kept = std::max( now, was * least_kept );
+        const double shortfall = std::max( 0.0, std::log( was / kept ) );
+        return weight * shortfall * shortfall;
+    };
+    double total = 0.0;
+    total += lost( whole.dodging, kept.dodging, 1.0 );
+    total += lost( whole.melee_hit, kept.melee_hit, 0.5 );
+    total += lost( whole.melee_speed, kept.melee_speed, 0.4 );
+    total += lost( whole.movement, kept.movement, 1.0 );
+    total += lost( whole.stamina, kept.stamina, 0.8 );
+    total += lost( whole.blocking, kept.blocking, 0.4 );
+    total += lost( whole.handling, kept.handling, 0.3 + 0.5 * shooting );
+    total += lost( whole.sight, kept.sight, 0.4 + 0.5 * shooting );
+    total += lost( whole.grip, kept.grip, 0.3 );
+    return total * weight_efficiency_lost;
+}
+
+// Where the outfit stands now, so that a change is judged against it.
+struct outfit_standing {
+    double worth = 0.0;
+    double lost = 0.0;
+};
+
+const outfit_standing &standing_of( Character &who )
+{
+    static scan_cache<character_id, outfit_standing> cache;
+    if( const outfit_standing *known = cache.find( who.getID() ) ) {
+        return *known;
+    }
+    outfit_standing now;
+    now.worth = outfit_worth( who, {}, nullptr );
+    now.lost = efficiency_lost( who, {}, nullptr );
+    return cache.store( who.getID(), now );
+}
+
+// What taking `removing` off and putting `adding` on would do to the character,
+// in armour points: the outfit's worth, less what its encumbrance costs.
+// Positive means better prepared.
+double change_gain( Character &who, const outfit_pieces &removing, const item *adding )
+{
+    const outfit_standing &now = standing_of( who );
+    const double worth = outfit_worth( who, removing, adding ) - now.worth;
+    // Encumbrance can at best give back what it costs now, so a change that
+    // does not pay even then is not worth measuring.
+    if( worth + now.lost <= margin_garment ) {
+        return worth + now.lost;
+    }
+    return worth - ( efficiency_lost( who, removing, adding ) - now.lost );
+}
+
 
 // The finest set of plate in the county is worthless to someone who collapses
 // from heatstroke wearing it, so somebody already overheating puts nothing
@@ -915,15 +1245,18 @@ bool holds_a_favorite( const item &it )
 }
 
 // Everything nested inside crates, boxes, duffel bags and first aid kits,
-// which is where a sorted camp keeps things.
+// which is where a sorted camp keeps things.  The plates seated in a carrier
+// are part of the carrier, not stored in it.
 void collect_from( const Character &who, item_location parent,
                    std::vector<item_location> &out, int depth )
 {
     if( depth > max_nesting_depth ) {
         return;
     }
+    const std::vector<const item *> plates = plates_in( *parent );
     for( item *inner : parent->all_items_top( pocket_type::CONTAINER ) ) {
-        if( off_limits_item( who, *inner ) ) {
+        if( off_limits_item( who, *inner ) ||
+            std::find( plates.begin(), plates.end(), inner ) != plates.end() ) {
             continue;
         }
         item_location child( parent, inner );
@@ -970,6 +1303,72 @@ std::vector<item_location> candidates_at( Character &who, const tripoint_bub_ms 
     return out;
 }
 
+// Plates lying about the camp, best first.  Seated ones are not: they belong
+// to the carrier they are in.
+const std::vector<const item *> &plates_in_reach( Character &p )
+{
+    static scan_cache<character_id, std::vector<const item *>> cache;
+    if( const std::vector<const item *> *known = cache.find( p.getID() ) ) {
+        return *known;
+    }
+    std::vector<const item *> plates;
+    map &here = get_map();
+    for( const tripoint_abs_ms &tile : stores_within_reach( p ) ) {
+        const tripoint_bub_ms bub = here.get_bub( tile );
+        if( !here.inbounds( bub ) ) {
+            continue;
+        }
+        for( item_location &loc : candidates_at( p, bub ) ) {
+            if( loc && is_plate( *loc ) ) {
+                plates.push_back( loc.get_item() );
+            }
+        }
+    }
+    std::stable_sort( plates.begin(), plates.end(), [&p]( const item * a, const item * b ) {
+        return facts_of( p, *a ).worth > facts_of( p, *b ).worth;
+    } );
+    return cache.store( p.getID(), std::move( plates ) );
+}
+
+// The piece as it would be worn: a bag arrives empty because wearing one
+// empties it into the camp's zones first, but the plates of a carrier stay
+// where they are, being armour, and an empty carrier is judged with the best
+// plates the camp can put in it, since those are what it is worn for.  Judged
+// as it would be worn, and only actually emptied once the decision is made,
+// so that a coat turned down leaves the camp's crates as it found them.
+const item &as_worn( Character &p, const item &it )
+{
+    static scan_cache<std::pair<character_id, const item *>, item> cache;
+    if( it.all_items_top( pocket_type::CONTAINER ).empty() && !it.is_ablative() ) {
+        return it;
+    }
+    const std::pair<character_id, const item *> key( p.getID(), &it );
+    if( const item *known = cache.find( key ) ) {
+        return *known;
+    }
+    item emptied( it );
+    const std::vector<const item *> plates = plates_in( emptied );
+    for( item *inner : emptied.all_items_top( pocket_type::CONTAINER ) ) {
+        if( std::find( plates.begin(), plates.end(), inner ) == plates.end() ) {
+            emptied.remove_item( *inner );
+        }
+    }
+    std::vector<const item *> used;
+    for( item_pocket *pocket : emptied.get_ablative_pockets() ) {
+        if( !pocket->empty() ) {
+            continue;
+        }
+        for( const item *plate : plates_in_reach( p ) ) {
+            if( !contains_piece( used, plate ) && pocket->can_contain( *plate ).success() &&
+                emptied.put_in( *plate, pocket_type::CONTAINER, false, nullptr, true ).success() ) {
+                used.push_back( plate );
+                break;
+            }
+        }
+    }
+    return cache.store( key, std::move( emptied ) );
+}
+
 // ---------------------------------------------------------------------------
 // Wants
 //
@@ -980,7 +1379,9 @@ std::vector<item_location> candidates_at( Character &who, const tripoint_bub_ms 
 
 // A camp tool (wrench, waffle iron) reads as is_melee() but must not be taken
 // as a weapon; a combat knife carries a tool slot but must.  Only the item's
-// own category tells them apart.  Guns are exempt -- a plasma torch is a tool.
+// own category tells them apart.  So it is with a hard hat or a boot, which
+// bash well enough to outscore bare fists and are for wearing.  Guns are
+// exempt -- a plasma torch is a tool.
 bool is_weapon_candidate( const item &it )
 {
     if( it.is_gun() ) {
@@ -989,15 +1390,22 @@ bool is_weapon_candidate( const item &it )
     if( !it.is_melee() ) {
         return false;
     }
-    return !it.is_tool() || it.get_category_shallow().get_id() == item_category_weapons;
+    return it.get_category_shallow().get_id() == item_category_weapons ||
+           ( !it.is_tool() && !it.is_armor() );
 }
 
-// Which ammunition types the camp can supply.  Rebuilt once a turn: the answer
-// is the same for every candidate weapon on every shelf, and working it out per
-// candidate would walk the whole camp for each one.
-const std::set<ammotype> &ammo_types_in_reach( Character &who )
+// What the camp can load a gun with: ammunition types, and the magazines to
+// put them in.  Rebuilt once a turn: the answer is the same for every candidate
+// weapon on every shelf, and working it out per candidate would walk the whole
+// camp for each one.
+struct loading_supplies {
+    std::set<ammotype> ammo;
+    std::set<itype_id> magazines;
+};
+
+const loading_supplies &supplies_in_reach( Character &who )
 {
-    static std::map<character_id, std::set<ammotype>> types_cache;
+    static std::map<character_id, loading_supplies> types_cache;
     static time_point cached_turn = calendar::before_time_starts;
     static unsigned int cached_generation = 0;
     if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
@@ -1010,13 +1418,14 @@ const std::set<ammotype> &ammo_types_in_reach( Character &who )
         return it->second;
     }
 
-    std::set<ammotype> types;
+    loading_supplies supplies;
     const auto note = [&]( const item & itm ) {
         if( itm.is_ammo() ) {
-            types.insert( itm.ammo_type() );
+            supplies.ammo.insert( itm.ammo_type() );
         } else if( itm.is_magazine() ) {
+            supplies.magazines.insert( itm.typeId() );
             for( const ammotype &at : itm.ammo_types() ) {
-                types.insert( at );
+                supplies.ammo.insert( at );
             }
         }
     };
@@ -1045,11 +1454,12 @@ const std::set<ammotype> &ammo_types_in_reach( Character &who )
             note_pile( itm );
         }
     }
-    return types_cache.emplace( who.getID(), std::move( types ) ).first->second;
+    return types_cache.emplace( who.getID(), std::move( supplies ) ).first->second;
 }
 
 // Is there anything to feed this gun with, anywhere the character can get at?
-// A gun already holding rounds needs no further justification.
+// A gun already holding rounds needs no further justification.  Loose rounds
+// are no use to a magazine-fed gun that has no magazine, nor any in reach.
 bool gun_has_ammo_in_reach( Character &who, const item &gun )
 {
     if( gun.ammo_remaining() > 0 ) {
@@ -1060,9 +1470,18 @@ bool gun_has_ammo_in_reach( Character &who, const item &gun )
         // Needs no ammunition at all: a bionic weapon, a UPS tool.
         return true;
     }
-    const std::set<ammotype> &available = ammo_types_in_reach( who );
+    const loading_supplies &available = supplies_in_reach( who );
+    if( !gun.magazine_integral() && !gun.magazine_current() ) {
+        bool has_magazine = false;
+        for( const itype_id &mag : gun.magazine_compatible() ) {
+            has_magazine = has_magazine || available.magazines.count( mag ) > 0;
+        }
+        if( !has_magazine ) {
+            return false;
+        }
+    }
     for( const ammotype &at : wanted ) {
-        if( available.count( at ) > 0 ) {
+        if( available.ammo.count( at ) > 0 ) {
             return true;
         }
     }
@@ -1159,7 +1578,7 @@ bool is_weapon_upgrade( Character &p, const item &it )
 // Walks every store tile in reach and remembers the single best pick, so a
 // weapon or backup blade taken from the first crate visited cannot lose to
 // one two tiles further on that this sweep would otherwise never compare it
-// against.  Recomputed once a turn like ammo_types_in_reach(): stores get
+// against.  Recomputed once a turn like supplies_in_reach(): stores get
 // emptied and carried gear changes, and this walks the whole reachable area.
 item_location best_candidate_in_reach( Character &p,
         const std::function<bool( Character &, const item & )> &wants,
@@ -1239,6 +1658,16 @@ bool needs_backup_blade( Character &p )
 
 // A good melee weapon is not a substitute for a gun: reach matters, and a
 // blade that outscores every pistol on raw evaluate_weapon still cannot shoot.
+// A follower told not to use guns, or to use only silent ones, is not given a
+// gun to carry that the orders rule out.
+bool orders_rule_out( const Character &p, const item &gun )
+{
+    const npc *guy = p.as_npc();
+    return guy && guy->is_player_ally() &&
+           ( !guy->rules.has_flag( ally_rule::use_guns ) ||
+             ( guy->rules.has_flag( ally_rule::use_silent ) && !gun.is_silent() ) );
+}
+
 // If the camp can feed a gun and the character is not already holding one,
 // acquire it as a backup even when the primary weapon is excellent.
 bool needs_backup_gun( Character &p )
@@ -1309,7 +1738,7 @@ bool wants_as_backup( Character &p, const item &it )
 // will be loaded in the supply stage.
 bool is_backup_gun_upgrade( Character &p, const item &it )
 {
-    if( !it.is_gun() || p.gear_up_rejected.count( it.typeId() ) > 0 ||
+    if( !it.is_gun() || p.gear_up_rejected.count( it.typeId() ) > 0 || orders_rule_out( p, it ) ||
         !p.can_wield( it ).success() ) {
         return false;
     }
@@ -1348,54 +1777,83 @@ bool wants_as_backup_gun( Character &p, const item &it )
     return is_backup_gun_upgrade( p, it ) && best_backup_gun_in_reach( p ).get_item() == &it;
 }
 
-// Everything asked of a garment candidate except whether some other tile in
-// reach holds a better one -- see is_weapon_upgrade() for why this side must
-// not call worth_trying_on().  Must ask the same questions try_one_garment()
-// does, or the character walks to a crate and does nothing there, turn after
-// turn.
-bool is_garment_upgrade( Character &p, const item &it )
+// What putting a garment on would take -- the pieces that have to come off
+// first -- and what the change is worth, in armour points.
+struct garment_plan {
+    bool useful = false;
+    double gain = 0.0;
+    outfit_pieces displaces;
+};
+
+// Everything asked of a garment candidate before it is weighed.  Must ask the
+// same questions try_one_garment() does, or the character walks to a crate and
+// does nothing there, turn after turn.
+bool garment_eligible( Character &p, const item &it )
 {
-    if( !it.is_armor() || p.gear_up_rejected.count( it.typeId() ) > 0 ) {
+    if( it.has_flag( flag_CANT_WEAR ) || hinders_a_fight( it ) ||
+        p.gear_up_rejected.count( it.typeId() ) > 0 ) {
+        return false;
+    }
+    if( it.has_flag( flag_SPLINT ) && !splints_a_break( p, it ) ) {
         return false;
     }
     if( overheating_forbids_dressing( p ) || holds_a_favorite( it ) ) {
         return false;
     }
-    // Contents stay in the camp, so only the empty weight is the wearer's.
-    if( p.weight_carried() + it.weight( false ) > p.weight_capacity() ) {
-        return false;
+    // Contents stay in the camp, so only what the piece is worn with -- its
+    // plates -- is the wearer's to carry.
+    return p.weight_carried() + as_worn( p, it ).weight() <= p.weight_capacity();
+}
+
+// The best way to put this garment on, if there is one worth doing.  A garment
+// that fits straight onto an empty slot is weighed on its own; otherwise it has
+// to displace what it shares a patch of skin and a layer with, one piece or all
+// of them.  Either way it is the whole outfit that is judged, so that giving up
+// a bulky coat for a lighter one is as visible as putting a coat on.
+const garment_plan &plan_for( Character &p, const item &it )
+{
+    static scan_cache<std::pair<character_id, const item *>, garment_plan> cache;
+    const std::pair<character_id, const item *> key( p.getID(), &it );
+    if( const garment_plan *known = cache.find( key ) ) {
+        return *known;
     }
-    const int target_warmth = target_warmth_for( planning_temperature( p ) );
-    const double candidate_proxy = wear_proxy( p, it, target_warmth );
-    // What it has to beat: bare skin where it would cover any, nothing where
-    // the skin under it is already clothed.  A parka in August still loses to
-    // the shirt already on, and still wins against a bare back.  Weighted by
-    // hit share like the score, or bare legs are held to a bare eyelid's bar.
-    const double bar = -weight_bare_skin * exposed_share( p, it ) *
-                       ( it.get_avg_coverage() / 100.0 ) * hit_share( p, it ) * weight_hit_share;
-    if( candidate_proxy <= bar ) {
-        return false;
-    }
-    // Straight onto an empty slot: can_wear() only forbids a second rigid
-    // piece, so the soft redundancy is asked about separately.
-    if( !conflicts_with_worn( p, it ) && p.can_wear( it ).success() ) {
-        return true;
-    }
-    // Otherwise it has to beat something already worn on the same patch of skin
-    // at the same layer (e.g. replacing an inferior normal-layer shirt).
-    bool better_than_something = false;
-    p.visit_items( [&]( const item * node, item * ) {
-        if( !p.is_worn( *node ) || node->is_favorite || !shares_layer_and_sub_part( *node, it ) ||
-            !p.can_takeoff( *node ).success() ) {
-            return VisitResponse::NEXT;
+    garment_plan plan;
+    if( garment_eligible( p, it ) ) {
+        const item &shelf = as_worn( p, it );
+        std::vector<outfit_pieces> options;
+        // can_wear() only forbids a second rigid piece, so the soft redundancy
+        // is asked about separately.
+        if( !conflicts_with_worn( p, shelf ) && p.can_wear( it ).success() ) {
+            options.emplace_back();
+        } else {
+            outfit_pieces rivals;
+            for( const item *piece : worn_pieces( p ) ) {
+                if( !piece->is_favorite && !keeps_the_air_out( *piece ) &&
+                    shares_layer_and_sub_part( *piece, shelf ) &&
+                    p.can_takeoff( *piece ).success() ) {
+                    rivals.push_back( piece );
+                    options.push_back( { piece } );
+                }
+            }
+            if( rivals.size() > 1 ) {
+                options.push_back( rivals );
+            }
         }
-        if( wear_proxy( p, *node, target_warmth ) < candidate_proxy ) {
-            better_than_something = true;
-            return VisitResponse::ABORT;
+        for( const outfit_pieces &option : options ) {
+            const double gain = change_gain( p, option, &shelf );
+            if( gain > margin_garment && ( !plan.useful || gain > plan.gain ) ) {
+                plan.useful = true;
+                plan.gain = gain;
+                plan.displaces = option;
+            }
         }
-        return VisitResponse::NEXT;
-    } );
-    return better_than_something;
+    }
+    return cache.store( key, std::move( plan ) );
+}
+
+bool is_garment_upgrade( Character &p, const item &it )
+{
+    return it.is_armor() && plan_for( p, it ).useful;
 }
 
 item_location best_garment_in_reach( Character &p )
@@ -1414,14 +1872,147 @@ item_location best_garment_in_reach( Character &p )
     }
     item_location best = best_candidate_in_reach( p, is_garment_upgrade,
     []( Character & who, const item & itm ) {
-        return wear_proxy( who, itm, target_warmth_for( planning_temperature( who ) ) );
+        return plan_for( who, itm ).gain;
     } );
     return best_cache.emplace( p.getID(), best ).first->second;
 }
 
+// Whatever is worn that costs the fight more in encumbrance than it earns in
+// protection, warmth and pockets, and is not worth the trouble to keep.  Only
+// bare pieces: a pack with things in it is somebody's kit, not clothing.
+const item *best_shed( Character &p )
+{
+    static scan_cache<character_id, const item *> cache;
+    if( const item **known = cache.find( p.getID() ) ) {
+        return *known;
+    }
+    const item *best = nullptr;
+    double best_gain = margin_shed;
+    // Taking something off can give back no more than is being lost.
+    if( standing_of( p ).lost > margin_shed ) {
+        for( const item *piece : worn_pieces( p ) ) {
+            if( piece->is_favorite || piece->has_flag( flag_INTEGRATED ) ||
+                piece->has_flag( flag_SPLINT ) || keeps_the_air_out( *piece ) ||
+                holds_loose_items( *piece ) ||
+                p.gear_up_rejected.count( piece->typeId() ) > 0 ||
+                !p.can_takeoff( *piece ).success() ) {
+                continue;
+            }
+            const double gain = change_gain( p, { piece }, nullptr );
+            if( gain > best_gain ) {
+                best = piece;
+                best_gain = gain;
+            }
+        }
+    }
+    return cache.store( p.getID(), best );
+}
+
+// Shedding is the last resort: a better garment somewhere in reach would
+// replace the burdensome one and keep the coverage.
+bool shed_pending( Character &p )
+{
+    return !best_garment_in_reach( p ) && best_shed( p ) != nullptr;
+}
+
+// Where a plate would go and what that is worth.
+struct plate_plan {
+    bool useful = false;
+    double gain = 0.0;
+    const item *carrier = nullptr;
+};
+
+// The worn carrier as it would be with this plate seated in it, or nothing when
+// the engine will not seat it.
+const item *seated_copy( const Character &p, const item &carrier, const item &plate )
+{
+    struct key_type {
+        character_id who;
+        const item *carrier;
+        const item *plate;
+        bool operator<( const key_type &rhs ) const {
+            return std::tie( who, carrier, plate ) < std::tie( rhs.who, rhs.carrier, rhs.plate );
+        }
+    };
+    static scan_cache<key_type, std::optional<item>> cache;
+    const key_type key{ p.getID(), &carrier, &plate };
+    std::optional<item> *known = cache.find( key );
+    if( !known ) {
+        item seated( carrier );
+        bool fits = false;
+        for( const item_pocket *pocket : seated.get_ablative_pockets() ) {
+            fits = fits || ( pocket->empty() && pocket->can_contain( plate ).success() );
+        }
+        fits = fits &&
+               seated.put_in( plate, pocket_type::CONTAINER, false, nullptr, true ).success();
+        std::optional<item> result;
+        if( fits ) {
+            result = std::move( seated );
+        }
+        known = &cache.store( key, std::move( result ) );
+    }
+    return known->has_value() ? &known->value() : nullptr;
+}
+
+const plate_plan &plate_plan_for( Character &p, const item &plate )
+{
+    static scan_cache<std::pair<character_id, const item *>, plate_plan> cache;
+    const std::pair<character_id, const item *> key( p.getID(), &plate );
+    if( const plate_plan *known = cache.find( key ) ) {
+        return *known;
+    }
+    plate_plan plan;
+    if( is_plate( plate ) && p.gear_up_rejected.count( plate.typeId() ) == 0 &&
+        p.weight_carried() + plate.weight() <= p.weight_capacity() ) {
+        for( const item *carrier : worn_pieces( p ) ) {
+            const item *seated = carrier->is_ablative() ? seated_copy( p, *carrier, plate ) :
+                                 nullptr;
+            if( !seated ) {
+                continue;
+            }
+            const double gain = change_gain( p, { carrier }, seated );
+            if( gain > margin_garment && ( !plan.useful || gain > plan.gain ) ) {
+                plan.useful = true;
+                plan.gain = gain;
+                plan.carrier = carrier;
+            }
+        }
+    }
+    return cache.store( key, plan );
+}
+
+item_location best_plate_in_reach( Character &p )
+{
+    static std::map<character_id, item_location> best_cache;
+    static time_point cached_turn = calendar::before_time_starts;
+    static unsigned int cached_generation = 0;
+    if( cached_turn != calendar::turn || cached_generation != gear_up_cache_generation ) {
+        cached_turn = calendar::turn;
+        cached_generation = gear_up_cache_generation;
+        best_cache.clear();
+    }
+    auto it = best_cache.find( p.getID() );
+    if( it != best_cache.end() ) {
+        return it->second;
+    }
+    item_location best = best_candidate_in_reach( p, []( Character & who, const item & itm ) {
+        return plate_plan_for( who, itm ).useful;
+    },
+    []( Character & who, const item & itm ) {
+        return plate_plan_for( who, itm ).gain;
+    } );
+    return best_cache.emplace( p.getID(), best ).first->second;
+}
+
+bool wants_as_plate( Character &p, const item &it )
+{
+    return is_plate( it ) && plate_plan_for( p, it ).useful &&
+           best_plate_in_reach( p ).get_item() == &it;
+}
+
 bool needs_storage( const Character &p )
 {
-    return units::to_liter( p.volume_capacity() ) < want_storage_liters_floor;
+    return units::to_liter( p.volume_capacity( carries_things ) ) < want_storage_liters_floor;
 }
 
 item_location best_storage_in_reach( Character &p )
@@ -1439,14 +2030,14 @@ item_location best_storage_in_reach( Character &p )
         return it->second;
     }
     item_location best = best_candidate_in_reach( p, []( Character & who, const item & itm ) {
-        return itm.get_volume_capacity() > 0_ml && is_garment_upgrade( who, itm );
+        return itm.get_volume_capacity( carries_things ) > 0_ml && is_garment_upgrade( who, itm );
     },
     []( Character &, const item & itm ) {
         // Ranked on the room it offers, not on wear_proxy(): this search runs
         // only while there is nowhere to put anything, and a coat that scores
         // well on armour is not the answer to that.  Everything the supply
         // stage does, and carrying a backup blade at all, waits on pockets.
-        return units::to_liter( itm.get_volume_capacity() );
+        return units::to_liter( itm.get_volume_capacity( carries_things ) );
     } );
     return best_cache.emplace( p.getID(), best ).first->second;
 }
@@ -1512,6 +2103,22 @@ int ammo_shortfall( Character &p )
     capacity = std::max( 1, capacity );
     const int have = count_ammo_carried( p, types );
     return std::max( 0, capacity * want_ammo_loads - have );
+}
+
+// What one round of this does when it lands: every projectile in it, with
+// armour piercing counting for a little more than its damage.
+double ammo_punch( const item &it )
+{
+    if( !it.is_ammo() || !it.type->ammo ) {
+        return 0.0;
+    }
+    const islot_ammo &round = *it.type->ammo;
+    const bool shot = round.count > 1 && !round.shot_damage.empty();
+    double punch = 0.0;
+    for( const damage_unit &unit : ( shot ? round.shot_damage : round.damage ).damage_units ) {
+        punch += unit.amount * ( 1.0 + 0.05 * unit.res_pen );
+    }
+    return punch * std::max( 1, round.count );
 }
 
 bool wants_ammo( Character &p, const item &it )
@@ -1713,7 +2320,7 @@ bool wanted_for_stage( Character &p, const item &it, gear_stage stage )
         return wants_as_weapon( p, it ) ||
                ( needs_backup_blade( p ) && wants_as_backup( p, it ) ) ||
                ( needs_backup_gun( p ) && wants_as_backup_gun( p, it ) ) ||
-               worth_trying_on( p, it );
+               worth_trying_on( p, it ) || wants_as_plate( p, it );
     }
     // A supply that could not be carried (no room, too heavy) never stops
     // being wanted on its own; only this memory ends the sweep.
@@ -1736,8 +2343,10 @@ bool pile_has_anything_wanted( Character &p, const item &it, gear_stage stage, i
     if( depth > max_nesting_depth ) {
         return false;
     }
+    const std::vector<const item *> plates = plates_in( it );
     for( const item *inner : it.all_items_top( pocket_type::CONTAINER ) ) {
         if( !off_limits_item( p, *inner ) &&
+            std::find( plates.begin(), plates.end(), inner ) == plates.end() &&
             pile_has_anything_wanted( p, *inner, stage, depth + 1 ) ) {
             return true;
         }
@@ -1753,6 +2362,10 @@ bool tile_has_anything_wanted( Character &p, const tripoint_bub_ms &tile, gear_s
     map &here = get_map();
     if( !here.inbounds( tile ) || tile_is_off_limits( p, tile ) ) {
         return false;
+    }
+    // Taking something off needs nothing from the tile but somewhere to put it.
+    if( stage == gear_stage::equipment && shed_pending( p ) ) {
+        return true;
     }
     // Both the places candidates_at() draws from, or the sweep walks to a
     // trunk it has already decided is worth visiting and finds nothing there.
@@ -1780,8 +2393,12 @@ bool tile_has_anything_wanted( Character &p, const tripoint_bub_ms &tile, gear_s
 void empty_where_it_stands( Character &who, item_location &loc, const tripoint_bub_ms &tile )
 {
     const std::list<item *> contents = loc->all_items_top( pocket_type::CONTAINER );
+    const std::vector<const item *> plates = plates_in( *loc );
     int moved = 0;
     for( item *inner : contents ) {
+        if( std::find( plates.begin(), plates.end(), inner ) != plates.end() ) {
+            continue;
+        }
         const item copy = *inner;
         if( !put_away( who, copy, tile ) ) {
             continue;
@@ -1823,27 +2440,40 @@ void transfer_contents( Character &who, item &from, item &to, const tripoint_bub
     }
 }
 
-// Keep a garment only if it beats an empty slot or the specific piece it
-// displaces, never the whole outfit.  What physically fits -- pocket length,
-// body size, rigid conflicts, power armour -- stays the engine's call.
+item_location worn_location( Character &p, const item *piece )
+{
+    for( item_location &loc : p.all_items_loc() ) {
+        if( loc && loc.get_item() == piece ) {
+            return loc;
+        }
+    }
+    return {};
+}
+
+// Back where it was, or failing that in the camp's storage and failing that on
+// the crate: it exists only in the takeoff list here, so anything less loses it.
+void put_back_on( Character &p, item &piece, const tripoint_bub_ms &tile )
+{
+    if( !p.wear_item( piece, false, true, true, true ) && !put_away( p, piece, tile ) ) {
+        place_at( tile, piece );
+    }
+}
+
+// Puts on the garment the plan chose, taking off what the plan displaces.
+// What physically fits -- pocket length, body size, rigid conflicts, power
+// armour -- stays the engine's call: anything it refuses is put back as it was.
 // Returns true if something changed.
 bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &tile )
 {
-    const int target_warmth = target_warmth_for( planning_temperature( p ) );
     const itype_id candidate_type = loc->typeId();
+    const garment_plan plan = plan_for( p, *loc );
+    if( !plan.useful ) {
+        p.gear_up_rejected.insert( candidate_type );
+        return false;
+    }
+    p.mod_moves( -p.item_wear_cost( *loc ) );
 
-    // Judged and weighed as it would be worn: empty.  It is only actually
-    // emptied once the decision is made, so a coat turned down leaves the
-    // camp's crates as it found them.
-    const item &on_the_shelf = *loc;
-    const double candidate_proxy = wear_proxy( p, on_the_shelf, target_warmth );
-    const units::mass candidate_weight = on_the_shelf.weight( false );
-    p.mod_moves( -p.item_wear_cost( on_the_shelf ) );
-
-    // Onto an empty slot.  The pre-filter already confirmed a positive score,
-    // so fitting is the only question left.
-    if( !conflicts_with_worn( p, on_the_shelf ) && p.can_wear( on_the_shelf ).success() &&
-        p.weight_carried() + candidate_weight <= p.weight_capacity() ) {
+    if( plan.displaces.empty() ) {
         empty_where_it_stands( p, loc, tile );
         // Weighed again on what is left: a camp with nowhere to put the
         // contents hands over a bag that is still full, and that weight is
@@ -1865,48 +2495,39 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
         return false;
     }
 
-    // Otherwise displace the worst piece already on that patch of skin and layer,
-    // if this beats it.
-    item_location replace_target;
-    double replace_proxy = 0.0;
-    for( item_location &worn_loc : p.all_items_loc() ) {
-        if( !worn_loc || !p.is_worn( *worn_loc ) ) {
-            continue;
-        }
-        const item &worn = *worn_loc;
-        if( worn.is_favorite || !shares_layer_and_sub_part( worn, on_the_shelf ) ||
-            !p.can_takeoff( worn ).success() ) {
-            continue;
-        }
-        const double proxy = wear_proxy( p, worn, target_warmth );
-        if( proxy >= candidate_proxy ) {
-            continue;
-        }
-        if( !replace_target || proxy < replace_proxy ) {
-            replace_target = worn_loc;
-            replace_proxy = proxy;
-        }
-    }
-    if( !replace_target ) {
-        p.gear_up_rejected.insert( candidate_type );
-        return false;
-    }
-
-    // The old piece comes off first: two rigid pieces cannot share a sub-part
+    // The old pieces come off first: two rigid pieces cannot share a sub-part
     // even for a moment, so wearing the new one first would quietly veto every
-    // helmet-for-helmet upgrade.  It keeps its contents while it waits in the
-    // takeoff list, so nothing is homeless in between.
-    const item displaced = *replace_target;
-    std::list<item> removed;
-    if( !quiet_takeoff( p, replace_target, removed ) || removed.empty() ) {
+    // helmet-for-helmet upgrade.  They keep their contents while they wait in
+    // the takeoff lists, so nothing is homeless in between.
+    std::vector<std::list<item>> removed( plan.displaces.size() );
+    std::vector<std::string> names;
+    size_t taken_off = 0;
+    for( const item *piece : plan.displaces ) {
+        item_location worn = worn_location( p, piece );
+        if( !worn ) {
+            break;
+        }
+        names.push_back( worn->tname() );
+        if( !quiet_takeoff( p, worn, removed[taken_off] ) || removed[taken_off].empty() ) {
+            break;
+        }
+        taken_off++;
+    }
+    const auto restore_all = [&]() {
+        for( size_t i = taken_off; i-- > 0; ) {
+            for( item &piece : removed[i] ) {
+                put_back_on( p, piece, tile );
+            }
+        }
         p.gear_up_rejected.insert( candidate_type );
+    };
+    if( taken_off < plan.displaces.size() ) {
+        restore_all();
         return false;
     }
-    item &old_worn = removed.front();
 
     // Only now is the candidate emptied.  Everything that could still turn this
-    // swap down has been asked, so a garment left on the shelf leaves the
-    // camp's crates as it found them.
+    // swap down has been asked.
     empty_where_it_stands( p, loc, tile );
 
     std::optional<std::list<item>::iterator> worn_it;
@@ -1914,31 +2535,91 @@ bool try_one_garment( Character &p, item_location &loc, const tripoint_bub_ms &t
         worn_it = p.wear_item( *loc, false, true, true, true );
     }
     if( !worn_it ) {
-        // The new one would not go on after all, so the old one goes straight
+        // The new one would not go on after all, so the old ones go straight
         // back on, contents untouched.
-        if( !p.wear_item( old_worn, false, true, true, true ) &&
-            !put_away( p, old_worn, tile ) ) {
-            place_at( tile, old_worn );
-        }
-        p.gear_up_rejected.insert( candidate_type );
+        restore_all();
         return false;
     }
     const item candidate = **worn_it;
-    transfer_contents( p, old_worn, **worn_it, tile );
+    for( std::list<item> &pieces : removed ) {
+        for( item &old_worn : pieces ) {
+            transfer_contents( p, old_worn, **worn_it, tile );
+        }
+    }
 
     loc.remove_item();
-    // The swap moved the totals wear_proxy() scores against, so the displaced
-    // piece can look attractive again and trade places with its replacement
-    // forever without this.
-    p.gear_up_rejected.insert( displaced.typeId() );
-    // Back into its zone, and failing that down on the crate it was traded at:
-    // it exists only in the takeoff list here, so anything less loses it.
-    if( !put_away( p, old_worn, tile ) ) {
-        place_at( tile, old_worn );
+    for( std::list<item> &pieces : removed ) {
+        for( item &old_worn : pieces ) {
+            // The swap moved the totals the outfit is scored against, so the
+            // displaced piece can look attractive again and trade places with
+            // its replacement forever without this.
+            p.gear_up_rejected.insert( old_worn.typeId() );
+            // Back into its zone, and failing that down on the crate it was
+            // traded at.
+            if( !put_away( p, old_worn, tile ) ) {
+                place_at( tile, old_worn );
+            }
+        }
     }
     p.add_msg_player_or_npc( m_good, _( "You swap your %1$s for the %2$s." ),
                              _( "<npcname> swaps their %1$s for a %2$s." ),
-                             displaced.tname(), candidate.tname() );
+                             names.front(), candidate.tname() );
+    for( size_t i = 1; i < names.size(); i++ ) {
+        p.add_msg_player_or_npc( m_good, _( "You take off your %s." ),
+                                 _( "<npcname> takes off their %s." ), names[i] );
+    }
+    return true;
+}
+
+// Slides a plate into the carrier the plan chose.
+bool seat_one_plate( Character &p, item_location &loc )
+{
+    const itype_id plate_type = loc->typeId();
+    const plate_plan plan = plate_plan_for( p, *loc );
+    item_location carrier = plan.useful ? worn_location( p, plan.carrier ) : item_location();
+    if( !carrier ) {
+        p.gear_up_rejected.insert( plate_type );
+        return false;
+    }
+    const std::string plate_name = loc->type_name();
+    const std::string carrier_name = carrier->type_name();
+    if( !carrier->put_in( *loc, pocket_type::CONTAINER, false, nullptr, true ).success() ) {
+        p.gear_up_rejected.insert( plate_type );
+        return false;
+    }
+    loc.remove_item();
+    p.mod_moves( -handle_cost_moves );
+    p.worn.recalc_ablative_blocking( &p );
+    p.calc_encumbrance();
+    p.add_msg_player_or_npc( m_good, _( "You slide the %1$s into your %2$s." ),
+                             _( "<npcname> slides a %1$s into their %2$s." ), plate_name,
+                             carrier_name );
+    return true;
+}
+
+// Takes one worn piece off and puts it away.  It is remembered as turned down
+// first, so that however it ends the order does not put it back on.
+bool shed_one( Character &p, const item *piece, const tripoint_bub_ms &tile )
+{
+    item_location worn = worn_location( p, piece );
+    if( !worn ) {
+        return true;
+    }
+    const std::string name = worn->tname();
+    p.gear_up_rejected.insert( worn->typeId() );
+    std::list<item> removed;
+    if( !quiet_takeoff( p, worn, removed ) || removed.empty() ) {
+        return true;
+    }
+    p.mod_moves( -p.item_wear_cost( removed.front() ) );
+    for( item &old_worn : removed ) {
+        if( !put_away( p, old_worn, tile ) ) {
+            place_at( tile, old_worn );
+        }
+    }
+    p.add_msg_player_or_npc( m_good, _( "You take off your %s; it costs more than it protects." ),
+                             _( "<npcname> takes off their %s; it costs more than it protects." ),
+                             name );
     return true;
 }
 
@@ -2053,6 +2734,14 @@ bool do_equipment_stage( Character &p, const tripoint_bub_ms &tile )
             return try_one_garment( p, loc, tile );
         }
     }
+    for( item_location &loc : pool ) {
+        if( loc && wants_as_plate( p, *loc ) ) {
+            return seat_one_plate( p, loc );
+        }
+    }
+    if( shed_pending( p ) ) {
+        return shed_one( p, best_shed( p ), tile );
+    }
     return false;
 }
 
@@ -2076,8 +2765,19 @@ bool do_supply_stage( Character &p, const tripoint_bub_ms &tile )
         }
     }
 
-    int taken = 0;
+    // The shortfall is met from the hardest-hitting stack first, not from whichever
+    // happens to lie on top of the crate.
+    std::vector<item_location *> by_punch;
     for( item_location &loc : pool ) {
+        by_punch.push_back( &loc );
+    }
+    std::stable_sort( by_punch.begin(), by_punch.end(),
+    []( const item_location * a, const item_location * b ) {
+        return *a && *b && ammo_punch( **a ) > ammo_punch( **b );
+    } );
+    int taken = 0;
+    for( item_location *entry : by_punch ) {
+        item_location &loc = *entry;
         const int want = ammo_shortfall( p );
         if( want <= 0 ) {
             break;
