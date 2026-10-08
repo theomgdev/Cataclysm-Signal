@@ -475,11 +475,12 @@ bool holds_loose_items( const item &it )
     return false;
 }
 
-// A respirator or a hazmat suit is worn for what it keeps out, which the order
-// cannot see from here.  Nobody strips a gas mask for a slightly better hat.
-bool keeps_the_air_out( const item &it )
+// A respirator, a hazmat suit or a suit of power armour is worn for what it
+// does, which the order cannot see from here.  Nobody strips a gas mask for a
+// slightly better hat.
+bool worn_for_its_function( const item &it )
 {
-    return it.has_flag( flag_GAS_PROOF ) ||
+    return it.has_flag( flag_GAS_PROOF ) || it.is_power_armor() ||
            ( it.covers( body_part_mouth.id() ) && it.get_env_resist() >= env_resist_respirator );
 }
 
@@ -1857,7 +1858,7 @@ const garment_plan &plan_for( Character &p, const item &it )
         } else {
             outfit_pieces rivals;
             for( const item *piece : worn_pieces( p ) ) {
-                if( !piece->is_favorite && !keeps_the_air_out( *piece ) &&
+                if( !piece->is_favorite && !worn_for_its_function( *piece ) &&
                     shares_layer_and_sub_part( *piece, shelf ) &&
                     p.can_takeoff( *piece ).success() ) {
                     rivals.push_back( piece );
@@ -1921,7 +1922,7 @@ const item *best_shed( Character &p )
     if( standing_of( p ).lost > margin_shed ) {
         for( const item *piece : worn_pieces( p ) ) {
             if( piece->is_favorite || piece->has_flag( flag_INTEGRATED ) ||
-                piece->has_flag( flag_SPLINT ) || keeps_the_air_out( *piece ) ||
+                piece->has_flag( flag_SPLINT ) || worn_for_its_function( *piece ) ||
                 holds_loose_items( *piece ) ||
                 p.gear_up_rejected.count( piece->typeId() ) > 0 ||
                 !p.can_takeoff( *piece ).success() ) {
