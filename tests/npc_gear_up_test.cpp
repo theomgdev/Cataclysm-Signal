@@ -44,6 +44,8 @@ static const efftype_id effect_sleep( "sleep" );
 
 static const faction_id faction_free_merchants( "free_merchants" );
 
+static const flag_id flag_DEBUG_ONLY( "DEBUG_ONLY" );
+
 static const item_category_id item_category_weapons( "weapons" );
 
 static const itype_id itype_2x4( "2x4" );
@@ -2490,7 +2492,7 @@ TEST_CASE( "npc_gear_up_leaves_what_blinds_deafens_or_trips_on_the_shelf", "[npc
 
     for( const flag_id &flag : {
              flag_BLIND, flag_DEAF, flag_MUTE, flag_FIN, flag_REQUIRES_BALANCE, flag_ROLLER_ONE,
-             flag_ROLLER_QUAD, flag_ROLLER_INLINE, flag_ITEM_BROKEN
+             flag_ROLLER_QUAD, flag_ROLLER_INLINE, flag_ITEM_BROKEN, flag_NO_TAKEOFF
          } ) {
         DYNAMIC_SECTION( "a shirt that is " << flag.str() ) {
             npc &guy = spawn_gear_up_npc( { 50, 50 } );
@@ -2768,4 +2770,52 @@ TEST_CASE( "npc_gear_up_respects_an_order_not_to_use_guns", "[npc][gear_up]" )
     REQUIRE( guy.get_wielded_item() );
     CHECK( guy.get_wielded_item()->typeId() == itype_machete );
     CHECK( count_of( guy, itype_glock_19 ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
+{
+    // The same property as above over camps nobody designed: whatever twenty
+    // pieces turn up, a second order finds nothing left to improve, and the
+    // result is not too heavy to carry.
+    rng_set_engine_seed( 20241008 );
+    std::vector<itype_id> pool;
+    for( const itype *type : item_controller->all() ) {
+        if( type->armor && !type->has_flag( flag_CANT_WEAR ) &&
+            !type->has_flag( flag_INTEGRATED ) && !type->has_flag( flag_NO_TAKEOFF ) &&
+            !type->has_flag( flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
+            pool.push_back( type->get_id() );
+        }
+    }
+    std::sort( pool.begin(), pool.end() );
+    REQUIRE_FALSE( pool.empty() );
+
+    for( int trial = 0; trial < 12; trial++ ) {
+        reset_world();
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        std::string camp;
+        for( int i = 0; i < 20; i++ ) {
+            const itype_id &piece = pool[rng( 0, pool.size() - 1 )];
+            camp += " " + piece.str();
+            get_map().add_item_or_charges( tile, item( piece ) );
+        }
+        CAPTURE( trial, camp );
+
+        const auto outfit_now = [&guy]() {
+            std::vector<std::string> pieces;
+            std::vector<item *> worn;
+            guy.worn.inv_dump( worn );
+            for( const item *piece : worn ) {
+                pieces.push_back( piece->typeId().str() );
+            }
+            std::sort( pieces.begin(), pieces.end() );
+            return pieces;
+        };
+        run_gear_up( guy, 1500 );
+        const std::vector<std::string> first = outfit_now();
+        run_gear_up( guy, 1500 );
+
+        CHECK( outfit_now() == first );
+        CHECK( guy.weight_carried() <= guy.weight_capacity() );
+    }
 }

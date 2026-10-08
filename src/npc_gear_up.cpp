@@ -483,13 +483,15 @@ bool keeps_the_air_out( const item &it )
            ( it.covers( body_part_mouth.id() ) && it.get_env_resist() >= env_resist_respirator );
 }
 
-// Gear that makes a fight harder in ways the encumbrance model cannot see.
+// Gear that makes a fight harder in ways the encumbrance model cannot see, and
+// gear that once on could never come off again to be judged better of.
 bool hinders_a_fight( const item &it )
 {
     return it.has_flag( flag_BLIND ) || it.has_flag( flag_DEAF ) || it.has_flag( flag_MUTE ) ||
            it.has_flag( flag_FIN ) || it.has_flag( flag_REQUIRES_BALANCE ) ||
            it.has_flag( flag_ROLLER_ONE ) || it.has_flag( flag_ROLLER_QUAD ) ||
-           it.has_flag( flag_ROLLER_INLINE ) || it.has_flag( flag_ITEM_BROKEN );
+           it.has_flag( flag_ROLLER_INLINE ) || it.has_flag( flag_ITEM_BROKEN ) ||
+           it.has_flag( flag_NO_TAKEOFF );
 }
 
 // A splint is armour only for a limb that is broken and not yet being mended.
