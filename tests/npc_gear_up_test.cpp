@@ -24,6 +24,7 @@
 #include "json_loader.h"
 #include "map.h"
 #include "map_helpers.h"
+#include "map_helpers_tests.h"
 #include "material.h"
 #include "npc.h"
 #include "npc_gear_up.h"
@@ -2770,6 +2771,27 @@ TEST_CASE( "npc_gear_up_respects_an_order_not_to_use_guns", "[npc][gear_up]" )
     REQUIRE( guy.get_wielded_item() );
     CHECK( guy.get_wielded_item()->typeId() == itype_machete );
     CHECK( count_of( guy, itype_glock_19 ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_will_not_start_with_a_hostile_in_sight", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Rummaging through crates with something hunting you is how people die.
+    // The map has to be one the follower can see across.
+    clear_map();
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+    here.add_item_or_charges( tile, item( itype_knife_combat ) );
+    monster &zombie = spawn_test_monster( "mon_zombie", guy.pos_bub() + tripoint( 0, 2, 0 ) );
+    guy.recalc_sight_limits();
+    REQUIRE( guy.sees( here, zombie ) );
+
+    talk_function::gear_up_from_stores( guy );
+
+    CHECK( guy.activity.is_null() );
+    CHECK_FALSE( guy.get_wielded_item() );
 }
 
 TEST_CASE( "npc_gear_up_settles_the_weapon_before_the_clothes", "[npc][gear_up]" )
