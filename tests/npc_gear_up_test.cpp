@@ -2772,6 +2772,39 @@ TEST_CASE( "npc_gear_up_respects_an_order_not_to_use_guns", "[npc][gear_up]" )
     CHECK( count_of( guy, itype_glock_19 ) == 0 );
 }
 
+TEST_CASE( "npc_gear_up_settles_the_weapon_before_the_clothes", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // How a garment fares depends on what is in the hands, so the walk goes to
+    // the weapon first even when the trousers are the nearer shelf.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms near_tile = make_storage_zone( guy );
+    const tripoint_bub_ms far_tile = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( -3, 0, 0 ) );
+    map &here = get_map();
+    here.add_item_or_charges( near_tile, item( itype_jeans ) );
+    here.add_item_or_charges( far_tile, item( itype_machete ) );
+
+    talk_function::gear_up_from_stores( guy );
+    bool armed = false;
+    bool dressed = false;
+    for( int turns = 0; turns < 400 && !armed && !dressed &&
+         ( !guy.activity.is_null() || guy.is_auto_moving() ); turns++ ) {
+        guy.set_moves( guy.get_speed() );
+        if( guy.is_auto_moving() ) {
+            guy.setpos( here, here.get_bub( *guy.destination_point ) );
+            here.build_map_cache( guy.posz() );
+            guy.start_destination_activity();
+        }
+        guy.activity.do_turn( guy );
+        armed = static_cast<bool>( guy.get_wielded_item() );
+        dressed = wearing( guy, itype_jeans );
+    }
+
+    CHECK( armed );
+    CHECK_FALSE( dressed );
+}
+
 TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
 {
     // The same property as above over camps nobody designed: whatever twenty

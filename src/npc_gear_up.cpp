@@ -1779,6 +1779,16 @@ bool wants_as_backup_gun( Character &p, const item &it )
     return is_backup_gun_upgrade( p, it ) && best_backup_gun_in_reach( p ).get_item() == &it;
 }
 
+// Clothing is judged for the fight it will be worn through, which depends on
+// the weapon in hand, so it waits until nothing in reach is a better weapon or
+// a missing backup.
+bool weapon_settled( Character &p )
+{
+    return !best_weapon_in_reach( p ) &&
+           !( needs_backup_blade( p ) && best_backup_in_reach( p ) ) &&
+           !( needs_backup_gun( p ) && best_backup_gun_in_reach( p ) );
+}
+
 // What putting a garment on would take -- the pieces that have to come off
 // first -- and what the change is worth, in armour points.
 struct garment_plan {
@@ -1914,7 +1924,7 @@ const item *best_shed( Character &p )
 // replace the burdensome one and keep the coverage.
 bool shed_pending( Character &p )
 {
-    return !best_garment_in_reach( p ) && best_shed( p ) != nullptr;
+    return weapon_settled( p ) && !best_garment_in_reach( p ) && best_shed( p ) != nullptr;
 }
 
 // Where a plate would go and what that is worth.
@@ -2008,7 +2018,7 @@ item_location best_plate_in_reach( Character &p )
 
 bool wants_as_plate( Character &p, const item &it )
 {
-    return is_plate( it ) && plate_plan_for( p, it ).useful &&
+    return is_plate( it ) && weapon_settled( p ) && plate_plan_for( p, it ).useful &&
            best_plate_in_reach( p ).get_item() == &it;
 }
 
@@ -2055,6 +2065,9 @@ item_location best_storage_in_reach( Character &p )
 // only, unless the camp genuinely has none to offer.
 bool worth_trying_on( Character &p, const item &it )
 {
+    if( !weapon_settled( p ) ) {
+        return false;
+    }
     if( needs_storage( p ) ) {
         item_location storage_pick = best_storage_in_reach( p );
         if( storage_pick ) {
