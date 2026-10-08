@@ -510,8 +510,8 @@ bool splints_a_break( const Character &who, const item &it )
 }
 
 // What one piece brings to an outfit, worked out once a turn.  `worth` is what
-// does not depend on the rest of the outfit: protection as the engine would
-// roll it, per body part, weighted by how often that part is the one struck.
+// does not depend on the rest of the outfit; protection, coverage and warmth
+// are kept per body part because they saturate once pieces are put together.
 // Plates in an ablative pocket are armour too.
 struct garment_facts {
     double worth = 0.0;
@@ -688,17 +688,38 @@ struct fighting_form {
     double grip = 0.0;
 };
 
+// Lends the character another outfit, and the encumbrance that goes with it,
+// until it goes out of scope; then their own outfit and encumbrance are back.
+class borrowed_outfit
+{
+    public:
+        borrowed_outfit( Character &who, outfit *loan, const item &adding )
+            : who( who ), loan( loan ) {
+            if( loan ) {
+                std::swap( who.worn, *loan );
+            }
+            who.calc_encumbrance( adding );
+        }
+        borrowed_outfit( const borrowed_outfit & ) = delete;
+        borrowed_outfit &operator=( const borrowed_outfit & ) = delete;
+        ~borrowed_outfit() {
+            if( loan ) {
+                std::swap( who.worn, *loan );
+            }
+            who.calc_encumbrance();
+        }
+    private:
+        Character &who;
+        outfit *loan;
+};
+
 // Lets the engine's own limb scores and character modifiers speak for the
-// outfit with some pieces off and one more on, then puts back what the
-// character really wears.  Mutations, body mass, wounds and effects are
-// therefore in the answer without being modelled here.
+// outfit with some pieces off and one more on.  Mutations, body mass, wounds
+// and effects are therefore in the answer without being modelled here.
 fighting_form measure_form( Character &who, const outfit_pieces &removing, const item *adding )
 {
     outfit *hypothetical = removing.empty() ? nullptr : &outfit_without( who, removing );
-    if( hypothetical ) {
-        std::swap( who.worn, *hypothetical );
-    }
-    who.calc_encumbrance( adding ? *adding : null_item_reference() );
+    const borrowed_outfit borrowed( who, hypothetical, adding ? *adding : null_item_reference() );
     const auto inverse = []( double cost ) {
         return cost > std::numeric_limits<float>::epsilon() ? 1.0 / cost : 0.0;
     };
@@ -714,10 +735,6 @@ fighting_form measure_form( Character &who, const outfit_pieces &removing, const
     form.handling = inverse( who.get_modifier( character_modifier_reloading_move_mod ) );
     form.sight = who.get_limb_score( limb_score_vision );
     form.grip = who.get_limb_score( limb_score_grip );
-    if( hypothetical ) {
-        std::swap( who.worn, *hypothetical );
-    }
-    who.calc_encumbrance();
     return form;
 }
 
