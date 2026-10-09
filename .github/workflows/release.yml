@@ -85,9 +85,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           NEEDS_RELEASE_OUTPUTS_TIMESTAMP: ${{ needs.release.outputs.timestamp }}
         run: |
-          archive="cdda-translations-${NEEDS_RELEASE_OUTPUTS_TIMESTAMP}.tar.gz"
+          archive="signal-translations-${NEEDS_RELEASE_OUTPUTS_TIMESTAMP}.tar.gz"
           (cd translations && tar --sort=name --owner=0 --group=0 --numeric-owner -czf "../${archive}" -- *)
-          gh release upload "cdda-experimental-${NEEDS_RELEASE_OUTPUTS_TIMESTAMP}" "${archive}"
+          gh release upload "signal-experimental-${NEEDS_RELEASE_OUTPUTS_TIMESTAMP}" "${archive}"
 
   # Compile GLSL -> spv/dxil/msl once on Linux and share with every tiles
   # platform job. Runtime variant_pass picks the format matching its GPU
@@ -534,11 +534,19 @@ jobs:
       - name: Build Signal (android)
         if: runner.os == 'Linux' && matrix.android != 'none'
         working-directory: ./android
+        env:
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_PROPERTIES: ${{ secrets.KEYSTORE_PROPERTIES }}
         run: |
-          echo "${{ secrets.KEYSTORE }}" > release.keystore.asc   
-          gpg -d --passphrase "${{ secrets.KEYSTORE_PASSWORD }}" --batch release.keystore.asc > app/release.keystore 
-          echo "${{ secrets.KEYSTORE_PROPERTIES }}" > keystore.properties.asc   
-          gpg -d --passphrase "${{ secrets.KEYSTORE_PASSWORD }}" --batch keystore.properties.asc > keystore.properties
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" > release.keystore.asc
+            gpg -d --passphrase "$KEYSTORE_PASSWORD" --batch release.keystore.asc > app/release.keystore
+            echo "$KEYSTORE_PROPERTIES" > keystore.properties.asc
+            gpg -d --passphrase "$KEYSTORE_PASSWORD" --batch keystore.properties.asc > keystore.properties
+          else
+            echo "::warning::No KEYSTORE secret; the APK is built unsigned."
+          fi
           export UPSTREAM_BUILD_NUMBER="$((11581 + ${{ github.run_number }}))"
           chmod +x gradlew
           if [ ${{ matrix.android }} = arm64 ]

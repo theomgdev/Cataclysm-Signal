@@ -1205,7 +1205,7 @@ $(BUILD_PREFIX)$(TARGET_NAME).a: $(OBJS)
 version:
 	@( VERSION_STRING=$(VERSION) ; \
         [ -e ".git" ] && \
-          GITVERSION=$$( git describe --tags --always --match "[0-9A-Z]*.[0-9A-Z]*" --match "cdda-experimental-*" --exact-match 2>/dev/null || true ) && \
+          GITVERSION=$$( git describe --tags --always --match "[0-9A-Z]*.[0-9A-Z]*" --match "signal-experimental-*" --exact-match 2>/dev/null || true ) && \
           GITSHA=$$( git rev-parse --short HEAD ) && \
           DIRTYFLAG=$$( [ -z "$$(git -c core.autocrlf=input -c core.safecrlf=false diff --numstat | grep -v lang/po/)" ] || echo "-dirty") && \
           VERSION_STRING="$$GITVERSION $$GITSHA$$DIRTYFLAG" && \
