@@ -53,6 +53,7 @@
 #include "vehicle.h"
 #include "visitable.h"
 #include "vpart_position.h"
+#include "vpart_range.h"
 #include "weather.h"
 
 static const efftype_id effect_sleep( "sleep" );
