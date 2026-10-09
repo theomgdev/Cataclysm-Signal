@@ -419,6 +419,9 @@ else
   GCC_MAJOR := $(shell $(CROSS)$(OS_COMPILER) -dumpversion 2>/dev/null | cut -d. -f1)
   ifeq ($(shell expr $(GCC_MAJOR) \>= 16 2>/dev/null), 1)
     CXX_WARNINGS += -Wno-error=sfinae-incomplete
+    # GCC 16 -Warray-bounds misreads std::shared_ptr and std::vector of the
+    # vehicle group functions (vehicle_group.h) as out of bounds.
+    CXX_WARNINGS += -Wno-error=array-bounds
   endif
 endif
 
