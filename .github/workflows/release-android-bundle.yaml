@@ -45,7 +45,8 @@ jobs:
             echo "$KEYSTORE_PROPERTIES" > keystore.properties.asc
             gpg -d --passphrase "$KEYSTORE_PASSWORD" --batch keystore.properties.asc > keystore.properties
           else
-            echo "::warning::No KEYSTORE secret; the bundle is built unsigned."
+            echo "::error::No KEYSTORE secret; an unsigned bundle cannot be published."
+            exit 1
           fi
           export UPSTREAM_BUILD_NUMBER="$((11581 + ${{ github.run_number }}))"
           chmod +x gradlew

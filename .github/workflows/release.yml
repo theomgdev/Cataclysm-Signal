@@ -545,7 +545,8 @@ jobs:
             echo "$KEYSTORE_PROPERTIES" > keystore.properties.asc
             gpg -d --passphrase "$KEYSTORE_PASSWORD" --batch keystore.properties.asc > keystore.properties
           else
-            echo "::warning::No KEYSTORE secret; the APK is built unsigned."
+            echo "::warning::No KEYSTORE secret; the unsigned APK is built but not published."
+            echo "UNSIGNED_ANDROID=true" >> "$GITHUB_ENV"
           fi
           export UPSTREAM_BUILD_NUMBER="$((11581 + ${{ github.run_number }}))"
           chmod +x gradlew
@@ -558,5 +559,6 @@ jobs:
                ./gradlew -Pj=$((`nproc`+0)) -Pabi_arm_64=false assembleExperimentalRelease
                mv ./app/build/outputs/apk/experimental/release/*.apk ../signal-${{ matrix.artifact }}-${{ needs.release.outputs.timestamp }}.apk 
           fi
-      - run: |
+      - if: env.UNSIGNED_ANDROID != 'true'
+        run: |
           gh release upload signal-experimental-${{ needs.release.outputs.timestamp }} signal-${{ matrix.artifact }}-${{ needs.release.outputs.timestamp }}.${{ matrix.ext }}
