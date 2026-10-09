@@ -1,8 +1,8 @@
-#include <stddef.h>
 #include <algorithm>
 #include <array>
 #include <climits>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
