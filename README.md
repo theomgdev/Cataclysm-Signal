@@ -50,24 +50,31 @@ speed here means removing wasted work, never adding parallelism.
   zones the way they walk them to sort or to build, working through the crates
   and equipping themselves from what is stored there: the best weapon they can
   use, something to swing if all they had was a gun, better armour and clothing,
-  then ammunition matched to the weapon they actually chose — loaded, not merely
-  carried — bandages, painkillers, a day of rations and a canteen. It takes real
-  time and it says what it did along the way. Give it to a follower from the `C`
-  menu or in conversation, or take it yourself from the `O` zone-activities menu.
+  then ammunition matched to the weapon they actually chose, the hardest-hitting
+  stack first — loaded, not merely carried — bandages, painkillers, a day of
+  rations and a canteen. It takes real time and it says what it did along the
+  way. Give it to a follower from the `C` menu or in conversation, or take it
+  yourself from the `O` zone-activities menu.
 - It reads the zones you already keep. Armour in `LOOT_ARMOR`, bandages in
   `LOOT_DRUGS`, rounds in `LOOT_AMMO`, all of it under whatever `CAMP_STORAGE`
   you threw over the top — and inside the boxes and kits, not just what is loose
   on the floor. Displaced gear goes back to the zone it belongs in, so gearing up
   leaves the camp sorted rather than strewn.
-- Every piece is judged against the one piece it would replace, or against bare
-  skin where there is nothing to replace: coverage-weighted protection,
-  encumbrance with legs and eyes or mouth weighted extra since losing mobility or
-  vision is how survivors die, weather, and carrying capacity up to what is
-  actually useful. Nobody strips a gas mask for a slightly better hat, keeps
-  stacking bags once there is nowhere left to put anything, or pulls a parka on
-  over a shirt in August — but an uncovered back gets covered whatever the month,
-  because plain clothing is worth more than nothing even when it is worth almost
-  nothing as armour.
+- Clothing is judged as a whole outfit, not piece by piece: protection that stops
+  adding up once a layer already stops the blow, bare skin, weather, and carrying
+  capacity up to what is actually useful, set against what the encumbrance costs.
+  That cost is read off the game's own limb scores, so the 70 a bomb suit puts on
+  the torso, which more than halves dodging and melee, weighs far more than the
+  7 of a coat, and someone already wearing one takes it off. Nobody strips a gas
+  mask for a slightly better hat, keeps stacking bags once there is nowhere left
+  to put anything, or pulls a parka on over a shirt in August — but an uncovered
+  back gets covered whatever the month, because plain clothing is worth more than
+  nothing even when it is worth almost nothing as armour.
+- Plates go in the carrier's pockets and stay there when the carrier is put on.
+  Blindfolds, ear plugs, fins and roller skates stay on the shelf, a splint goes
+  on a broken arm and nowhere else, a briefcase is not carried in the hand that
+  holds the shotgun, and a gun with rounds on the shelf but no magazine to load
+  them into is not picked over the machete.
 - Pockets come before plating. Somebody with nothing to carry things in looks for
   a bag or a pair of cargo pockets first, since without them a backup blade,
   spare rounds and bandages alike have nowhere to go.

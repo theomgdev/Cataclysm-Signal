@@ -24,6 +24,7 @@
 #include "json_loader.h"
 #include "map.h"
 #include "map_helpers.h"
+#include "map_helpers_tests.h"
 #include "material.h"
 #include "npc.h"
 #include "npc_gear_up.h"
@@ -44,31 +45,43 @@ static const efftype_id effect_sleep( "sleep" );
 
 static const faction_id faction_free_merchants( "free_merchants" );
 
+static const flag_id flag_DEBUG_ONLY( "DEBUG_ONLY" );
+
 static const item_category_id item_category_weapons( "weapons" );
 
 static const itype_id itype_2x4( "2x4" );
 static const itype_id itype_9mm( "9mm" );
+static const itype_id itype_arm_splint( "arm_splint" );
 static const itype_id itype_aspirin( "aspirin" );
 static const itype_id itype_backpack( "backpack" );
 static const itype_id itype_backpack_leather( "backpack_leather" );
+static const itype_id itype_ballistic_vest_esapi( "ballistic_vest_esapi" );
 static const itype_id itype_bandages( "bandages" );
 static const itype_id itype_bandolier_shotgun( "bandolier_shotgun" );
 static const itype_id itype_bleach( "bleach" );
+static const itype_id itype_blindfold( "blindfold" );
 static const itype_id itype_boots( "boots" );
 static const itype_id itype_bottle_plastic( "bottle_plastic" );
 static const itype_id itype_crowbar( "crowbar" );
 static const itype_id itype_box_small( "box_small" );
+static const itype_id itype_briefcase( "briefcase" );
 static const itype_id itype_canteen( "canteen" );
 static const itype_id itype_chestrig( "chestrig" );
 static const itype_id itype_duffelbag( "duffelbag" );
 static const itype_id itype_dump_pouch( "dump_pouch" );
+static const itype_id itype_ear_plugs( "ear_plugs" );
+static const itype_id itype_esapi_plate( "esapi_plate" );
+static const itype_id itype_foot_protectors_eod( "foot_protectors_eod" );
 static const itype_id itype_glock_19( "glock_19" );
 static const itype_id itype_glockmag( "glockmag" );
+static const itype_id itype_gloves_eod( "gloves_eod" );
 static const itype_id itype_gloves_leather( "gloves_leather" );
 static const itype_id itype_hammer( "hammer" );
 static const itype_id itype_hat_hard( "hat_hard" );
 static const itype_id itype_helmet_army( "helmet_army" );
+static const itype_id itype_helmet_eod( "helmet_eod" );
 static const itype_id itype_hoodie( "hoodie" );
+static const itype_id itype_jacket_eod( "jacket_eod" );
 static const itype_id itype_jacket_leather( "jacket_leather" );
 static const itype_id itype_jacket_light( "jacket_light" );
 static const itype_id itype_jeans( "jeans" );
@@ -78,6 +91,7 @@ static const itype_id itype_longshirt( "longshirt" );
 static const itype_id itype_kevlar( "kevlar" );
 static const itype_id itype_knife_combat( "knife_combat" );
 static const itype_id itype_machete( "machete" );
+static const itype_id itype_mask_gas( "mask_gas" );
 static const itype_id itype_molle_pack( "molle_pack" );
 static const itype_id itype_mutagen( "mutagen" );
 static const itype_id itype_pointy_stick( "pointy_stick" );
@@ -86,6 +100,7 @@ static const itype_id itype_quiver( "quiver" );
 static const itype_id itype_runner_bag( "runner_bag" );
 static const itype_id itype_pebble( "pebble" );
 static const itype_id itype_rock( "rock" );
+static const itype_id itype_roller_blades( "roller_blades" );
 static const itype_id itype_sheet_cotton( "sheet_cotton" );
 static const itype_id itype_spear_wood( "spear_wood" );
 static const itype_id itype_dynamite( "dynamite" );
@@ -94,9 +109,13 @@ static const itype_id itype_sunglasses( "sunglasses" );
 static const itype_id itype_sandwich_cheese( "sandwich_cheese" );
 static const itype_id itype_wrench( "wrench" );
 static const itype_id itype_shot_00( "shot_00" );
+static const itype_id itype_shot_bird( "shot_bird" );
+static const itype_id itype_shotgun_d( "shotgun_d" );
+static const itype_id itype_swim_fins( "swim_fins" );
 static const itype_id itype_sweater( "sweater" );
 static const itype_id itype_towel( "towel" );
 static const itype_id itype_trenchcoat( "trenchcoat" );
+static const itype_id itype_trousers_eod( "trousers_eod" );
 static const itype_id itype_tshirt( "tshirt" );
 static const itype_id itype_umbrella( "umbrella" );
 static const itype_id itype_water_clean( "water_clean" );
@@ -408,7 +427,9 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
     // Two garments on one patch of skin at the same layer is the redundancy
     // worth catching; an undershirt beneath a coat is not.
     int torso_outerwear = 0;
-    for( const itype_id &coat : { itype_hoodie, itype_trenchcoat, itype_sweater } ) {
+    for( const itype_id &coat : {
+             itype_hoodie, itype_trenchcoat, itype_sweater
+         } ) {
         torso_outerwear += guy.amount_worn( coat );
     }
     CHECK( torso_outerwear <= 2 );
@@ -464,7 +485,9 @@ TEST_CASE( "npc_gear_up_respects_what_a_pocket_will_actually_hold", "[npc][gear_
     REQUIRE( guy.get_wielded_item() );
     CHECK( guy.get_wielded_item()->typeId() == itype_glock_19 );
     CHECK( count_of( guy, itype_longbow ) == 0 );
-    for( const itype_id &blade : { itype_machete, itype_knife_combat } ) {
+    for( const itype_id &blade : {
+             itype_machete, itype_knife_combat
+         } ) {
         if( count_of( guy, blade ) > 0 ) {
             CHECK( guy.can_stash( item( blade ) ) );
         }
@@ -1582,7 +1605,7 @@ TEST_CASE( "npc_gear_up_collects_from_multiple_separate_tiles", "[npc][gear_up]"
     npc &guy = spawn_bare_npc( { 50, 50 } );
     map &here = get_map();
 
-    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint(1, 0, 0) );
+    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 1, 0, 0 ) );
     const tripoint_bub_ms tile_b = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 4, 0, 0 ) );
     const tripoint_bub_ms tile_c = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 8, 0, 0 ) );
 
@@ -2040,7 +2063,7 @@ void scatter_draw_over( const tripoint_bub_ms &tile, const std::vector<itype_id>
 }
 
 void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
-                              const std::vector<itype_id> &draw )
+                             const std::vector<itype_id> &draw )
 {
     printf( "\n=== gear-up random draw (%zu items) ===\n", draw.size() );
 
@@ -2090,7 +2113,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
         return VisitResponse::NEXT;
     } );
 
-    auto print_list = [&]( const char * label, const std::vector<std::string> &items ) {
+    auto print_list = [&]( const char *label, const std::vector<std::string> &items ) {
         printf( "%s (%zu): ", label, items.size() );
         for( const std::string &s : items ) {
             printf( "%s; ", s.c_str() );
@@ -2324,3 +2347,534 @@ TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[
     }
 }
 
+
+
+namespace
+{
+
+int count_on( const tripoint_bub_ms &tile, const itype_id &id )
+{
+    int found = 0;
+    for( const item &it : get_map().i_at( tile ) ) {
+        it.visit_items( [&found, &id]( const item * node, item * ) {
+            if( node->typeId() == id ) {
+                found += node->count();
+            }
+            return VisitResponse::NEXT;
+        } );
+    }
+    return found;
+}
+
+// Everything a full bomb disposal outfit would put on.
+const std::vector<itype_id> &eod_suit()
+{
+    static const std::vector<itype_id> suit = {
+        itype_jacket_eod, itype_trousers_eod, itype_helmet_eod, itype_gloves_eod,
+        itype_foot_protectors_eod
+    };
+    return suit;
+}
+
+} // namespace
+
+TEST_CASE( "npc_gear_up_trades_a_bomb_suit_for_lighter_protection", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // The EOD jacket and trousers out-armour everything else in the camp and
+    // carry torso and leg encumbrance in the seventies and eighties.  The
+    // engine turns that into a dodge chance and a running speed a fraction of
+    // what they were, so a follower who wears them for the armour alone has
+    // been made worse at the one thing the order is for.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    for( const itype_id &piece : {
+             itype_jacket_eod, itype_trousers_eod, itype_kevlar, itype_jeans, itype_boots
+         } ) {
+        here.add_item_or_charges( tile, item( piece ) );
+    }
+
+    run_gear_up( guy );
+
+    CHECK_FALSE( wearing( guy, itype_jacket_eod ) );
+    CHECK_FALSE( wearing( guy, itype_trousers_eod ) );
+    CHECK( wearing( guy, itype_kevlar ) );
+    CHECK( wearing( guy, itype_jeans ) );
+    CHECK( wearing( guy, itype_boots ) );
+}
+
+TEST_CASE( "npc_gear_up_takes_off_a_bomb_suit_it_was_already_wearing", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Whoever dressed this follower last wore the whole suit.  Better gear is
+    // in the camp, and the order is to be ready to fight, not to defuse.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    for( const itype_id &piece : eod_suit() ) {
+        guy.worn.wear_item( guy, item( piece ), false, false );
+    }
+    REQUIRE( guy.amount_worn( itype_jacket_eod ) == 1 );
+    REQUIRE( guy.amount_worn( itype_trousers_eod ) == 1 );
+    here.add_item_or_charges( tile, item( itype_kevlar ) );
+    here.add_item_or_charges( tile, item( itype_jeans ) );
+
+    run_gear_up( guy );
+
+    CHECK_FALSE( wearing( guy, itype_jacket_eod ) );
+    CHECK_FALSE( wearing( guy, itype_trousers_eod ) );
+    CHECK( wearing( guy, itype_kevlar ) );
+    CHECK( wearing( guy, itype_jeans ) );
+    // Put away in the camp, not thrown away.
+    CHECK( count_on( tile, itype_jacket_eod ) == 1 );
+    CHECK( count_on( tile, itype_trousers_eod ) == 1 );
+}
+
+TEST_CASE( "npc_gear_up_sheds_a_bomb_suit_nothing_in_the_camp_can_replace", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Taking it off leaves bare skin, which is worth less than the armour but
+    // more than being unable to dodge or run.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    for( const itype_id &piece : eod_suit() ) {
+        guy.worn.wear_item( guy, item( piece ), false, false );
+    }
+    here.add_item_or_charges( tile, item( itype_knife_combat ) );
+
+    run_gear_up( guy );
+
+    CHECK_FALSE( wearing( guy, itype_jacket_eod ) );
+    CHECK_FALSE( wearing( guy, itype_trousers_eod ) );
+    CHECK( count_on( tile, itype_jacket_eod ) == 1 );
+    CHECK( count_of( guy, itype_backpack ) > 0 );
+}
+
+TEST_CASE( "avatar_gear_up_trades_a_bomb_suit_for_lighter_protection", "[npc][gear_up][avatar]" )
+{
+    reset_world();
+
+    avatar &you = prepare_avatar( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( you );
+    map &here = get_map();
+
+    for( const itype_id &piece : {
+             itype_jacket_eod, itype_trousers_eod, itype_kevlar, itype_jeans
+         } ) {
+        here.add_item_or_charges( tile, item( piece ) );
+    }
+
+    run_gear_up( you );
+
+    CHECK_FALSE( wearing( you, itype_jacket_eod ) );
+    CHECK_FALSE( wearing( you, itype_trousers_eod ) );
+    CHECK( wearing( you, itype_kevlar ) );
+    CHECK( wearing( you, itype_jeans ) );
+}
+
+TEST_CASE( "npc_gear_up_leaves_what_blinds_deafens_or_trips_on_the_shelf", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // A plain t-shirt is something the follower wants.  The same shirt marked as
+    // one of these is not, whatever it would otherwise score.
+    SECTION( "the unmarked shirt is worn" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        get_map().add_item_or_charges( make_storage_zone( guy ), item( itype_tshirt ) );
+
+        run_gear_up( guy );
+
+        CHECK( wearing( guy, itype_tshirt ) );
+    }
+
+    for( const flag_id &flag : {
+             flag_BLIND, flag_DEAF, flag_MUTE, flag_FIN, flag_REQUIRES_BALANCE, flag_ROLLER_ONE,
+             flag_ROLLER_QUAD, flag_ROLLER_INLINE, flag_ITEM_BROKEN, flag_NO_TAKEOFF
+         } ) {
+        DYNAMIC_SECTION( "a shirt that is " << flag.str() ) {
+            npc &guy = spawn_gear_up_npc( { 50, 50 } );
+            item shirt( itype_tshirt );
+            shirt.set_flag( flag );
+            get_map().add_item_or_charges( make_storage_zone( guy ), shirt );
+
+            run_gear_up( guy );
+
+            CHECK_FALSE( wearing( guy, itype_tshirt ) );
+        }
+    }
+
+    SECTION( "blindfold, roller blades, fins and ear plugs stay on the shelf" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        for( const itype_id &piece : {
+                 itype_blindfold, itype_roller_blades, itype_swim_fins, itype_ear_plugs
+             } ) {
+            get_map().add_item_or_charges( tile, item( piece ) );
+        }
+
+        run_gear_up( guy );
+
+        CHECK_FALSE( wearing( guy, itype_blindfold ) );
+        CHECK_FALSE( wearing( guy, itype_roller_blades ) );
+        CHECK_FALSE( wearing( guy, itype_swim_fins ) );
+        CHECK_FALSE( wearing( guy, itype_ear_plugs ) );
+    }
+}
+
+TEST_CASE( "npc_gear_up_keeps_a_respirator_on", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // A filtered gas mask hinders breathing and sight to the point that, judged
+    // as armour alone, it is not worth wearing.  It is worn for what it keeps
+    // out, which the order cannot see, so it is not taken off.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    item mask( itype_mask_gas );
+    mask.set_var( "overwrite_env_resist", 16 );
+    guy.worn.wear_item( guy, mask, false, false );
+    REQUIRE( wearing( guy, itype_mask_gas ) );
+    get_map().add_item_or_charges( tile, item( itype_knife_combat ) );
+
+    run_gear_up( guy );
+
+    CHECK( wearing( guy, itype_mask_gas ) );
+}
+
+TEST_CASE( "npc_gear_up_settles_on_an_outfit_and_stays_there", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Every swap has to be an improvement by the order's own measure, or two
+    // near-equal pieces trade places for ever.  Ordering the same job twice
+    // from a camp full of rivals must leave the second run nothing to do.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    for( const itype_id &piece : {
+             itype_jacket_eod, itype_trousers_eod, itype_helmet_eod, itype_gloves_eod,
+             itype_foot_protectors_eod, itype_kevlar, itype_ballistic_vest_esapi,
+             itype_esapi_plate, itype_esapi_plate, itype_jeans, itype_boots, itype_helmet_army,
+             itype_gloves_leather, itype_jacket_leather, itype_hoodie, itype_tshirt,
+             itype_sweater, itype_trenchcoat
+         } ) {
+        here.add_item_or_charges( tile, item( piece ) );
+    }
+
+    const auto outfit_now = [&guy]() {
+        std::vector<std::string> pieces;
+        std::vector<item *> worn;
+        guy.worn.inv_dump( worn );
+        for( const item *piece : worn ) {
+            pieces.push_back( piece->typeId().str() );
+        }
+        std::sort( pieces.begin(), pieces.end() );
+        return pieces;
+    };
+
+    run_gear_up( guy );
+    const std::vector<std::string> first = outfit_now();
+    run_gear_up( guy );
+
+    CHECK( outfit_now() == first );
+}
+
+TEST_CASE( "npc_gear_up_seats_plates_in_the_carrier_it_wears", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // A plate carrier is worth wearing for the plates, and the plates are
+    // sitting in a crate beside it.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    here.add_item_or_charges( tile, item( itype_ballistic_vest_esapi ) );
+    here.add_item_or_charges( tile, item( itype_esapi_plate ) );
+    here.add_item_or_charges( tile, item( itype_esapi_plate ) );
+
+    run_gear_up( guy );
+
+    CHECK( wearing( guy, itype_ballistic_vest_esapi ) );
+    CHECK( count_of( guy, itype_esapi_plate ) == 2 );
+    CHECK( count_on( tile, itype_esapi_plate ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_keeps_the_plates_already_in_a_carrier", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Wearing a bag empties it into the camp.  A carrier's plates are its
+    // armour, not what it holds, and stay where they are.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    item carrier( itype_ballistic_vest_esapi );
+    REQUIRE( carrier.put_in( item( itype_esapi_plate ), pocket_type::CONTAINER ).success() );
+    REQUIRE( carrier.put_in( item( itype_esapi_plate ), pocket_type::CONTAINER ).success() );
+    here.add_item_or_charges( tile, carrier );
+
+    run_gear_up( guy );
+
+    CHECK( wearing( guy, itype_ballistic_vest_esapi ) );
+    CHECK( count_of( guy, itype_esapi_plate ) == 2 );
+    CHECK( count_on( tile, itype_esapi_plate ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_leaves_the_hand_free_for_a_two_handed_weapon", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // A briefcase is carried in the hand: worn, it keeps both hands off the gun.
+    npc &guy = spawn_bare_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+
+    item shotgun( itype_shotgun_d );
+    REQUIRE( guy.wield( shotgun ) );
+    here.add_item_or_charges( tile, item( itype_briefcase ) );
+
+    run_gear_up( guy );
+
+    CHECK_FALSE( wearing( guy, itype_briefcase ) );
+    CHECK( guy.get_wielded_item() );
+}
+
+TEST_CASE( "npc_gear_up_splints_a_broken_arm_and_only_then", "[npc][gear_up]" )
+{
+    reset_world();
+
+    SECTION( "a broken arm is splinted" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        get_map().add_item_or_charges( tile, item( itype_arm_splint ) );
+        guy.set_part_hp_cur( body_part_arm_l, 0 );
+        REQUIRE( guy.is_limb_broken( body_part_arm_l ) );
+
+        run_gear_up( guy );
+
+        CHECK( wearing( guy, itype_arm_splint ) );
+    }
+
+    SECTION( "sound limbs are left alone" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        get_map().add_item_or_charges( tile, item( itype_arm_splint ) );
+
+        run_gear_up( guy );
+
+        CHECK_FALSE( wearing( guy, itype_arm_splint ) );
+    }
+}
+
+TEST_CASE( "npc_gear_up_takes_the_harder_hitting_ammunition_first", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Two stacks that each fill the follower's six shells.  Whichever lies
+    // first in the crate must not be the one that decides.
+    item birdshot( itype_shot_bird );
+    birdshot.charges = 50;
+    item buckshot( itype_shot_00 );
+    buckshot.charges = 50;
+
+    const auto gear_up_with = [&]( const item & first, const item & second ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        map &here = get_map();
+        here.add_item_or_charges( tile, first );
+        here.add_item_or_charges( tile, second );
+        here.add_item_or_charges( tile, item( itype_shotgun_d ) );
+
+        run_gear_up( guy );
+
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( count_of( guy, itype_shot_00 ) > 0 );
+        CHECK( count_of( guy, itype_shot_bird ) == 0 );
+    };
+
+    SECTION( "birdshot lies on top" ) {
+        gear_up_with( birdshot, buckshot );
+    }
+
+    SECTION( "buckshot lies on top" ) {
+        gear_up_with( buckshot, birdshot );
+    }
+}
+
+TEST_CASE( "npc_gear_up_wants_a_magazine_gun_only_with_a_magazine_to_load", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Rounds on the shelf do nothing for a pistol that takes a magazine when
+    // there is no magazine anywhere to put them in.
+    map &here = get_map();
+    item rounds( itype_9mm );
+    rounds.charges = 50;
+
+    SECTION( "rounds but no magazine: the blade is the weapon" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        here.add_item_or_charges( tile, item( itype_glock_19 ) );
+        here.add_item_or_charges( tile, rounds );
+        here.add_item_or_charges( tile, item( itype_machete ) );
+
+        run_gear_up( guy );
+
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( guy.get_wielded_item()->typeId() == itype_machete );
+        CHECK( count_of( guy, itype_glock_19 ) == 0 );
+    }
+
+    SECTION( "a magazine on the shelf makes it a gun" ) {
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        here.add_item_or_charges( tile, item( itype_glock_19 ) );
+        here.add_item_or_charges( tile, item( itype_glockmag ) );
+        here.add_item_or_charges( tile, rounds );
+        here.add_item_or_charges( tile, item( itype_machete ) );
+
+        run_gear_up( guy );
+
+        REQUIRE( guy.get_wielded_item() );
+        CHECK( guy.get_wielded_item()->typeId() == itype_glock_19 );
+        CHECK( guy.get_wielded_item()->ammo_remaining() > 0 );
+    }
+}
+
+TEST_CASE( "npc_gear_up_respects_an_order_not_to_use_guns", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // The player told this follower to keep the guns holstered.  Carrying one
+    // as a sidearm anyway, and the rounds for it, would be doing the opposite.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+    guy.rules.clear_flag( ally_rule::use_guns );
+    item rounds( itype_9mm );
+    rounds.charges = 50;
+
+    here.add_item_or_charges( tile, item( itype_glock_19 ) );
+    here.add_item_or_charges( tile, item( itype_glockmag ) );
+    here.add_item_or_charges( tile, rounds );
+    here.add_item_or_charges( tile, item( itype_machete ) );
+
+    run_gear_up( guy );
+
+    REQUIRE( guy.get_wielded_item() );
+    CHECK( guy.get_wielded_item()->typeId() == itype_machete );
+    CHECK( count_of( guy, itype_glock_19 ) == 0 );
+}
+
+TEST_CASE( "npc_gear_up_will_not_start_with_a_hostile_in_sight", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // Rummaging through crates with something hunting you is how people die.
+    // The map has to be one the follower can see across.
+    clear_map();
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms tile = make_storage_zone( guy );
+    map &here = get_map();
+    here.add_item_or_charges( tile, item( itype_knife_combat ) );
+    monster &zombie = spawn_test_monster( "mon_zombie", guy.pos_bub() + tripoint( 0, 2, 0 ) );
+    guy.recalc_sight_limits();
+    REQUIRE( guy.sees( here, zombie ) );
+
+    talk_function::gear_up_from_stores( guy );
+
+    CHECK( guy.activity.is_null() );
+    CHECK_FALSE( guy.get_wielded_item() );
+}
+
+TEST_CASE( "npc_gear_up_settles_the_weapon_before_the_clothes", "[npc][gear_up]" )
+{
+    reset_world();
+
+    // How a garment fares depends on what is in the hands, so the walk goes to
+    // the weapon first even when the trousers are the nearer shelf.
+    npc &guy = spawn_gear_up_npc( { 50, 50 } );
+    const tripoint_bub_ms near_tile = make_storage_zone( guy );
+    const tripoint_bub_ms far_tile = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( -3, 0, 0 ) );
+    map &here = get_map();
+    here.add_item_or_charges( near_tile, item( itype_jeans ) );
+    here.add_item_or_charges( far_tile, item( itype_machete ) );
+
+    talk_function::gear_up_from_stores( guy );
+    bool armed = false;
+    bool dressed = false;
+    for( int turns = 0; turns < 400 && !armed && !dressed &&
+         ( !guy.activity.is_null() || guy.is_auto_moving() ); turns++ ) {
+        guy.set_moves( guy.get_speed() );
+        if( guy.is_auto_moving() ) {
+            guy.setpos( here, here.get_bub( *guy.destination_point ) );
+            here.build_map_cache( guy.posz() );
+            guy.start_destination_activity();
+        }
+        guy.activity.do_turn( guy );
+        armed = static_cast<bool>( guy.get_wielded_item() );
+        dressed = wearing( guy, itype_jeans );
+    }
+
+    CHECK( armed );
+    CHECK_FALSE( dressed );
+}
+
+TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
+{
+    // The same property as above over camps nobody designed: whatever twenty
+    // pieces turn up, a second order finds nothing left to improve, and the
+    // result is not too heavy to carry.
+    rng_set_engine_seed( 20241008 );
+    std::vector<itype_id> pool;
+    for( const itype *type : item_controller->all() ) {
+        if( type->armor && !type->has_flag( flag_CANT_WEAR ) &&
+            !type->has_flag( flag_INTEGRATED ) && !type->has_flag( flag_NO_TAKEOFF ) &&
+            !type->has_flag( flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
+            pool.push_back( type->get_id() );
+        }
+    }
+    std::sort( pool.begin(), pool.end() );
+    REQUIRE_FALSE( pool.empty() );
+
+    for( int trial = 0; trial < 12; trial++ ) {
+        reset_world();
+        npc &guy = spawn_gear_up_npc( { 50, 50 } );
+        const tripoint_bub_ms tile = make_storage_zone( guy );
+        std::string camp;
+        for( int i = 0; i < 20; i++ ) {
+            const itype_id &piece = pool[rng( 0, pool.size() - 1 )];
+            camp += " " + piece.str();
+            get_map().add_item_or_charges( tile, item( piece ) );
+        }
+        CAPTURE( trial, camp );
+
+        const auto outfit_now = [&guy]() {
+            std::vector<std::string> pieces;
+            std::vector<item *> worn;
+            guy.worn.inv_dump( worn );
+            for( const item *piece : worn ) {
+                pieces.push_back( piece->typeId().str() );
+            }
+            std::sort( pieces.begin(), pieces.end() );
+            return pieces;
+        };
+        run_gear_up( guy, 1500 );
+        const std::vector<std::string> first = outfit_now();
+        run_gear_up( guy, 1500 );
+
+        CHECK( outfit_now() == first );
+        CHECK( guy.weight_carried() <= guy.weight_capacity() );
+    }
+}
