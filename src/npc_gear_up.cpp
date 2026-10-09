@@ -1,20 +1,24 @@
-#include "activity_actor_definitions.h"
-
 #include <algorithm>
 #include <array>
 #include <climits>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <list>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "activity_actor_definitions.h"
 #include "activity_handlers.h"
 #include "activity_item_handling.h"
 #include "avatar.h"
@@ -24,14 +28,11 @@
 #include "character.h"
 #include "character_attire.h"
 #include "character_id.h"
-#include "character_modifier.h"
 #include "clzones.h"
 #include "coordinates.h"
 #include "creature.h"
 #include "damage.h"
-#include "debug.h"
 #include "enums.h"
-#include "faction.h"
 #include "flag.h"
 #include "game.h"
 #include "game_constants.h"
@@ -42,15 +43,20 @@
 #include "itype.h"
 #include "line.h"
 #include "map.h"
+#include "map_iterator.h"
+#include "map_scale_constants.h"
 #include "map_selector.h"
 #include "messages.h"
 #include "npc.h"
 #include "npc_gear_up.h"
 #include "npctalk.h"
-#include "output.h"
 #include "player_activity.h"
+#include "pocket_type.h"
 #include "ret_val.h"
+#include "stomach.h"
+#include "subbodypart.h"
 #include "translations.h"
+#include "type_id.h"
 #include "units.h"
 #include "value_ptr.h"
 #include "vehicle.h"
@@ -58,7 +64,6 @@
 #include "visitable.h"
 #include "vpart_position.h"
 #include "weather.h"
-#include "weather_type.h"
 
 /*
  * "Gear up from the stores": the character walks the faction's loot and camp
@@ -661,7 +666,7 @@ double outfit_worth( Character &who, const outfit_pieces &removing, const item *
 outfit &outfit_without( const Character &who, outfit_pieces without )
 {
     static scan_cache<std::pair<character_id, outfit_pieces>, outfit> cache;
-    std::sort( without.begin(), without.end(), std::less<const item *>() );
+    std::sort( without.begin(), without.end(), std::less<>() );
     const std::pair<character_id, outfit_pieces> key( who.getID(), without );
     if( outfit *known = cache.find( key ) ) {
         return *known;
@@ -1100,7 +1105,7 @@ bool quiet_takeoff( Character &who, item_location loc, std::list<item> &into )
 // npc::wield and avatar::wield each do bookkeeping of their own on top of
 // Character::wield -- martial arts styles, the range cache, the message -- and
 // none of the three is virtual, so a Character-typed call silently skips it.
-bool wield_loc( Character &who, item_location loc )
+bool wield_loc( Character &who, const item_location &loc )
 {
     if( npc *guy = who.as_npc() ) {
         return guy->wield( loc );
@@ -1375,6 +1380,7 @@ const item &as_worn( Character &p, const item &it )
 {
     static scan_cache<std::pair<character_id, const item *>, item> cache;
     if( it.all_items_top( pocket_type::CONTAINER ).empty() && !it.is_ablative() ) {
+        // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter)
         return it;
     }
     const std::pair<character_id, const item *> key( p.getID(), &it );
@@ -1532,6 +1538,7 @@ bool gun_has_ammo_in_reach( Character &who, const item &gun )
 double weapon_score( const Character &p, const item &it, bool pretend_ammo = true )
 {
     if( p.is_wielding( it ) ) {
+        // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
         const item copy = it;
         return p.evaluate_weapon( copy, pretend_ammo );
     }
@@ -2690,6 +2697,8 @@ bool do_equipment_stage( Character &p, const tripoint_bub_ms &tile )
         const itype_id taken_type = best->typeId();
         item_location wielded = p.get_wielded_item();
         if( wielded ) {
+            // A copy: the wielded item is gone once the hands are emptied below.
+            // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
             const item old = *wielded;
             if( !p.can_unwield( old ).success() ) {
                 // The candidate can never be taken while the hands are stuck,
@@ -2816,6 +2825,7 @@ bool do_supply_stage( Character &p, const tripoint_bub_ms &tile )
     // The shortfall is met from the hardest-hitting stack first, not from whichever
     // happens to lie on top of the crate.
     std::vector<item_location *> by_punch;
+    by_punch.reserve( pool.size() );
     for( item_location &loc : pool ) {
         by_punch.push_back( &loc );
     }

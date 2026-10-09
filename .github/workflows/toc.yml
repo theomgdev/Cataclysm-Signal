@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   generateTOC:
-    if: github.repository == 'theomgdev/Cataclysm-Signal'
+    if: github.repository == 'CleverRaven/Cataclysm-DDA'
     name: Update the table of contents
     runs-on: ubuntu-latest
     steps:

@@ -1,9 +1,17 @@
+#include <algorithm>
 #include <cstdio>
+#include <functional>
+#include <initializer_list>
+#include <list>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "activity_actor_definitions.h"
 #include "avatar.h"
 #include "bodypart.h"
 #include "calendar.h"
@@ -12,113 +20,137 @@
 #include "character_attire.h"
 #include "clzones.h"
 #include "coordinates.h"
-#include "faction.h"
+#include "enums.h"
 #include "flag.h"
-#include "game.h"
+#include "flexbuffer_json.h"
 #include "item.h"
 #include "item_category.h"
 #include "item_factory.h"
 #include "item_location.h"
-#include "item_pocket.h"
 #include "itype.h"
+#include "json.h"
 #include "json_loader.h"
 #include "map.h"
 #include "map_helpers.h"
 #include "map_helpers_tests.h"
+#include "map_iterator.h"
 #include "material.h"
+#include "monster.h"
 #include "npc.h"
 #include "npc_gear_up.h"
 #include "npctalk.h"
 #include "options_helpers.h"
 #include "player_activity.h"
 #include "player_helpers.h"
+#include "pocket_type.h"
 #include "point.h"
+#include "ret_val.h"
 #include "rng.h"
 #include "string_formatter.h"
 #include "type_id.h"
 #include "units.h"
+#include "value_ptr.h"
 #include "vehicle.h"
+#include "visitable.h"
 #include "vpart_position.h"
+#include "vpart_range.h"
 #include "weather.h"
 
 static const efftype_id effect_sleep( "sleep" );
 
 static const faction_id faction_free_merchants( "free_merchants" );
 
-static const flag_id flag_DEBUG_ONLY( "DEBUG_ONLY" );
+static const flag_id json_flag_DEBUG_ONLY( "DEBUG_ONLY" );
 
 static const item_category_id item_category_weapons( "weapons" );
 
 static const itype_id itype_2x4( "2x4" );
 static const itype_id itype_9mm( "9mm" );
+static const itype_id itype_alcohol_wipes( "alcohol_wipes" );
+static const itype_id itype_apron_cotton( "apron_cotton" );
 static const itype_id itype_arm_splint( "arm_splint" );
+static const itype_id itype_armguard_soft( "armguard_soft" );
 static const itype_id itype_aspirin( "aspirin" );
 static const itype_id itype_backpack( "backpack" );
 static const itype_id itype_backpack_leather( "backpack_leather" );
 static const itype_id itype_ballistic_vest_esapi( "ballistic_vest_esapi" );
 static const itype_id itype_bandages( "bandages" );
 static const itype_id itype_bandolier_shotgun( "bandolier_shotgun" );
+static const itype_id itype_battleaxe( "battleaxe" );
 static const itype_id itype_bleach( "bleach" );
 static const itype_id itype_blindfold( "blindfold" );
 static const itype_id itype_boots( "boots" );
 static const itype_id itype_bottle_plastic( "bottle_plastic" );
-static const itype_id itype_crowbar( "crowbar" );
 static const itype_id itype_box_small( "box_small" );
 static const itype_id itype_briefcase( "briefcase" );
 static const itype_id itype_canteen( "canteen" );
 static const itype_id itype_chestrig( "chestrig" );
+static const itype_id itype_corset( "corset" );
+static const itype_id itype_crowbar( "crowbar" );
 static const itype_id itype_duffelbag( "duffelbag" );
 static const itype_id itype_dump_pouch( "dump_pouch" );
+static const itype_id itype_dynamite( "dynamite" );
 static const itype_id itype_ear_plugs( "ear_plugs" );
 static const itype_id itype_esapi_plate( "esapi_plate" );
+static const itype_id itype_fitover_sunglasses( "fitover_sunglasses" );
 static const itype_id itype_foot_protectors_eod( "foot_protectors_eod" );
 static const itype_id itype_glock_19( "glock_19" );
 static const itype_id itype_glockmag( "glockmag" );
 static const itype_id itype_gloves_eod( "gloves_eod" );
+static const itype_id itype_gloves_fingerless( "gloves_fingerless" );
 static const itype_id itype_gloves_leather( "gloves_leather" );
 static const itype_id itype_hammer( "hammer" );
 static const itype_id itype_hat_hard( "hat_hard" );
+static const itype_id itype_hat_knit( "hat_knit" );
 static const itype_id itype_helmet_army( "helmet_army" );
 static const itype_id itype_helmet_eod( "helmet_eod" );
 static const itype_id itype_hoodie( "hoodie" );
+static const itype_id itype_ibuprofen( "ibuprofen" );
 static const itype_id itype_jacket_eod( "jacket_eod" );
 static const itype_id itype_jacket_leather( "jacket_leather" );
 static const itype_id itype_jacket_light( "jacket_light" );
 static const itype_id itype_jeans( "jeans" );
 static const itype_id itype_katana( "katana" );
-static const itype_id itype_longbow( "longbow" );
-static const itype_id itype_longshirt( "longshirt" );
 static const itype_id itype_kevlar( "kevlar" );
 static const itype_id itype_knife_combat( "knife_combat" );
+static const itype_id itype_leggings( "leggings" );
+static const itype_id itype_longbow( "longbow" );
+static const itype_id itype_longshirt( "longshirt" );
 static const itype_id itype_machete( "machete" );
 static const itype_id itype_mask_gas( "mask_gas" );
 static const itype_id itype_molle_pack( "molle_pack" );
 static const itype_id itype_mutagen( "mutagen" );
+static const itype_id itype_pebble( "pebble" );
 static const itype_id itype_pointy_stick( "pointy_stick" );
 static const itype_id itype_purse( "purse" );
 static const itype_id itype_quiver( "quiver" );
-static const itype_id itype_runner_bag( "runner_bag" );
-static const itype_id itype_pebble( "pebble" );
+static const itype_id itype_rashguard( "rashguard" );
 static const itype_id itype_rock( "rock" );
 static const itype_id itype_roller_blades( "roller_blades" );
-static const itype_id itype_sheet_cotton( "sheet_cotton" );
-static const itype_id itype_spear_wood( "spear_wood" );
-static const itype_id itype_dynamite( "dynamite" );
-static const itype_id itype_socks( "socks" );
-static const itype_id itype_sunglasses( "sunglasses" );
+static const itype_id itype_runner_bag( "runner_bag" );
 static const itype_id itype_sandwich_cheese( "sandwich_cheese" );
-static const itype_id itype_wrench( "wrench" );
+static const itype_id itype_scarf( "scarf" );
+static const itype_id itype_sheet_cotton( "sheet_cotton" );
+static const itype_id itype_shorts( "shorts" );
 static const itype_id itype_shot_00( "shot_00" );
 static const itype_id itype_shot_bird( "shot_bird" );
 static const itype_id itype_shotgun_d( "shotgun_d" );
-static const itype_id itype_swim_fins( "swim_fins" );
+static const itype_id itype_socks( "socks" );
+static const itype_id itype_spear_wood( "spear_wood" );
+static const itype_id itype_sunglasses( "sunglasses" );
 static const itype_id itype_sweater( "sweater" );
+static const itype_id itype_sweatshirt( "sweatshirt" );
+static const itype_id itype_swim_fins( "swim_fins" );
+static const itype_id itype_throat_guard_cut_resistant( "throat_guard_cut_resistant" );
 static const itype_id itype_towel( "towel" );
 static const itype_id itype_trenchcoat( "trenchcoat" );
 static const itype_id itype_trousers_eod( "trousers_eod" );
 static const itype_id itype_tshirt( "tshirt" );
 static const itype_id itype_umbrella( "umbrella" );
 static const itype_id itype_water_clean( "water_clean" );
+static const itype_id itype_wearable_light( "wearable_light" );
+static const itype_id itype_welding_papr_helmet( "welding_papr_helmet" );
+static const itype_id itype_wrench( "wrench" );
 
 static const vproto_id vehicle_prototype_car( "car" );
 
@@ -278,6 +310,17 @@ int items_on( const tripoint_bub_ms &tile )
     return get_map().i_at( tile ).size();
 }
 
+// Frozen food is food nobody packs; say so up front rather than as a missing sandwich.
+bool any_frozen_on( const tripoint_bub_ms &tile )
+{
+    for( const item &it : get_map().i_at( tile ) ) {
+        if( it.has_own_flag( flag_FROZEN ) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void reset_world()
 {
     // Mid-morning.  Rummaging through crates needs light, and the activity
@@ -287,10 +330,13 @@ void reset_world()
     clear_map_without_vision();
     clear_avatar();
     zone_manager::get_manager().clear();
-    // Temperature is generated for the player's position and then cached until
-    // the weather is next due, so an earlier case can leave this world cold
-    // enough to freeze the rations solid, and frozen food is food nobody packs.
+    // 09:30 on the first day sits on the freezing line, and the temperature
+    // follows wherever an earlier case left the avatar on the map, so a loose
+    // sandwich can come out frozen -- and frozen food is food nobody packs.
+    // Pin a cool day; testCaseEnded lifts it again.
     get_weather().set_nextweather( calendar::turn );
+    get_weather().forced_temperature = units::from_celsius( 5 );
+    get_weather().clear_temp_cache();
     // Every test resets calendar::turn to the same constant and the avatar
     // cases all reuse the same singleton character, so the order's per-turn
     // scan caches need an explicit kick or a later test can be answered by a
@@ -353,6 +399,7 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
         REQUIRE( canteen.put_in( water, pocket_type::CONTAINER ).success() );
         here.add_item_or_charges( tile, canteen );
     }
+    REQUIRE_FALSE( any_frozen_on( tile ) );
 
     // A wardrobe with duplicates and competing pieces for the same skin.
     for( const itype_id &clothing : {
@@ -1480,6 +1527,7 @@ TEST_CASE( "npc_gear_up_takes_a_day_of_food_not_the_larder", "[npc][gear_up]" )
     for( int i = 0; i < 40; i++ ) {
         here.add_item_or_charges( tile, item( itype_sandwich_cheese ) );
     }
+    REQUIRE_FALSE( any_frozen_on( tile ) );
 
     run_gear_up( guy );
 
@@ -1605,7 +1653,7 @@ TEST_CASE( "npc_gear_up_collects_from_multiple_separate_tiles", "[npc][gear_up]"
     npc &guy = spawn_bare_npc( { 50, 50 } );
     map &here = get_map();
 
-    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 1, 0, 0 ) );
+    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint::east );
     const tripoint_bub_ms tile_b = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 4, 0, 0 ) );
     const tripoint_bub_ms tile_c = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 8, 0, 0 ) );
 
@@ -1704,6 +1752,11 @@ TEST_CASE( "npc_gear_up_equips_from_a_vehicle_s_cargo", "[npc][gear_up]" )
                                      veh_spawn_status::UNDAMAGED );
     REQUIRE( veh != nullptr );
     veh->set_owner( guy.get_faction_id() );
+    // The car comes stocked from an item group, and a daypack in the trunk
+    // beats the backpack this case is about.
+    for( const vpart_reference &vp : veh->get_all_parts() ) {
+        veh->get_items( vp.part() ).clear();
+    }
 
     // The roomiest cargo part, so the test is about what the sweep reads and
     // not about a trunk that happened to be full.
@@ -1755,6 +1808,9 @@ TEST_CASE( "npc_gear_up_puts_displaced_gear_back_into_the_vehicle", "[npc][gear_
                                      veh_spawn_status::UNDAMAGED );
     REQUIRE( veh != nullptr );
     veh->set_owner( guy.get_faction_id() );
+    for( const vpart_reference &vp : veh->get_all_parts() ) {
+        veh->get_items( vp.part() ).clear();
+    }
 
     std::optional<vpart_reference> cargo;
     tripoint_bub_ms cargo_pos;
@@ -2114,9 +2170,9 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
     } );
 
     auto print_list = [&]( const char *label, const std::vector<std::string> &items ) {
-        printf( "%s (%zu): ", label, items.size() );
+        printf( "%s (%zu):", label, items.size() );
         for( const std::string &s : items ) {
-            printf( "%s; ", s.c_str() );
+            printf( " %s;", s.c_str() );
         }
         printf( "\n" );
     };
@@ -2212,7 +2268,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
 // more than any single draw costs to simulate, so several trials are looped
 // inside one process launch: that pays the load cost once and still covers as
 // much ground per second of wall-clock time as re-launching would.
-constexpr int wide_pool_trials = 6;
+static constexpr int wide_pool_trials = 6;
 
 TEST_CASE( "npc_gear_up_wide_item_pool", "[npc][gear_up][.]" )
 {
@@ -2276,44 +2332,44 @@ TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[
 
     // Recreate the exact camp item environment
     const std::vector<itype_id> store_items = {
-        itype_id( "welding_papr_helmet" ),
-        itype_id( "hat_knit" ),
-        itype_id( "wearable_light" ),
-        itype_id( "fitover_sunglasses" ),
-        itype_id( "sunglasses" ),
-        itype_id( "throat_guard_cut_resistant" ),
-        itype_id( "scarf" ),
-        itype_id( "gloves_fingerless" ),
-        itype_id( "boots" ),
-        itype_id( "socks" ),
-        itype_id( "jeans" ),
-        itype_id( "leggings" ),
-        itype_id( "shorts" ),
-        itype_id( "armguard_soft" ),
-        itype_id( "rashguard" ), // 1st rashguard
-        itype_id( "rashguard" ), // 2nd rashguard
-        itype_id( "sweatshirt" ),
-        itype_id( "jacket_light" ),
-        itype_id( "corset" ),
-        itype_id( "apron_cotton" ),
-        itype_id( "duffelbag" ),
-        itype_id( "shotgun_d" ),
-        itype_id( "battleaxe" ),
+        itype_welding_papr_helmet,
+        itype_hat_knit,
+        itype_wearable_light,
+        itype_fitover_sunglasses,
+        itype_sunglasses,
+        itype_throat_guard_cut_resistant,
+        itype_scarf,
+        itype_gloves_fingerless,
+        itype_boots,
+        itype_socks,
+        itype_jeans,
+        itype_leggings,
+        itype_shorts,
+        itype_armguard_soft,
+        itype_rashguard, // 1st rashguard
+        itype_rashguard, // 2nd rashguard
+        itype_sweatshirt,
+        itype_jacket_light,
+        itype_corset,
+        itype_apron_cotton,
+        itype_duffelbag,
+        itype_shotgun_d,
+        itype_battleaxe,
     };
 
     for( const itype_id &id : store_items ) {
         here.add_item_or_charges( tile, item( id ) );
     }
 
-    item shells( itype_id( "shot_00" ) );
+    item shells( itype_shot_00 );
     shells.charges = 50;
     here.add_item_or_charges( tile, shells );
 
-    item wipes( itype_id( "alcohol_wipes" ) );
+    item wipes( itype_alcohol_wipes );
     wipes.charges = 10;
     here.add_item_or_charges( tile, wipes );
 
-    item pills( itype_id( "ibuprofen" ) );
+    item pills( itype_ibuprofen );
     pills.charges = 20;
     here.add_item_or_charges( tile, pills );
 
@@ -2321,21 +2377,21 @@ TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[
 
     item_location wielded = guy.get_wielded_item();
     REQUIRE( wielded );
-    CHECK( wielded->typeId() == itype_id( "shotgun_d" ) );
+    CHECK( wielded->typeId() == itype_shotgun_d );
     CHECK( wielded->ammo_remaining() > 0 );
 
     // Backup weapon stashed in storage
-    CHECK( count_of( guy, itype_id( "battleaxe" ) ) > 0 );
+    CHECK( count_of( guy, itype_battleaxe ) > 0 );
 
     // Medical supplies collected
-    CHECK( count_of( guy, itype_id( "alcohol_wipes" ) ) > 0 );
-    CHECK( count_of( guy, itype_id( "ibuprofen" ) ) > 0 );
+    CHECK( count_of( guy, itype_alcohol_wipes ) > 0 );
+    CHECK( count_of( guy, itype_ibuprofen ) > 0 );
 
     // Exactly one rashguard worn; no same-layer duplicate rashguards
-    CHECK( guy.amount_worn( itype_id( "rashguard" ) ) == 1 );
+    CHECK( guy.amount_worn( itype_rashguard ) == 1 );
 
     // Blinding welding helmet was rejected
-    CHECK( count_of( guy, itype_id( "welding_papr_helmet" ) ) == 0 );
+    CHECK( count_of( guy, itype_welding_papr_helmet ) == 0 );
 
     // Check that layering penalty across all body parts is 0
     std::map<bodypart_id, encumbrance_data> enc_vals;
@@ -2574,6 +2630,7 @@ TEST_CASE( "npc_gear_up_settles_on_an_outfit_and_stays_there", "[npc][gear_up]" 
         std::vector<std::string> pieces;
         std::vector<item *> worn;
         guy.worn.inv_dump( worn );
+        pieces.reserve( worn.size() );
         for( const item *piece : worn ) {
             pieces.push_back( piece->typeId().str() );
         }
@@ -2841,7 +2898,7 @@ TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
     for( const itype *type : item_controller->all() ) {
         if( type->armor && !type->has_flag( flag_CANT_WEAR ) &&
             !type->has_flag( flag_INTEGRATED ) && !type->has_flag( flag_NO_TAKEOFF ) &&
-            !type->has_flag( flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
+            !type->has_flag( json_flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
             pool.push_back( type->get_id() );
         }
     }
@@ -2864,6 +2921,7 @@ TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
             std::vector<std::string> pieces;
             std::vector<item *> worn;
             guy.worn.inv_dump( worn );
+            pieces.reserve( worn.size() );
             for( const item *piece : worn ) {
                 pieces.push_back( piece->typeId().str() );
             }

@@ -7,6 +7,10 @@ on:
 
 jobs:
   labeling:
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
     if: >-
       github.repository == 'theomgdev/Cataclysm-Signal' &&
       github.event.workflow_run.event == 'pull_request' &&

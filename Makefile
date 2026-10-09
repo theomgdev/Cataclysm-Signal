@@ -419,6 +419,9 @@ else
   GCC_MAJOR := $(shell $(CROSS)$(OS_COMPILER) -dumpversion 2>/dev/null | cut -d. -f1)
   ifeq ($(shell expr $(GCC_MAJOR) \>= 16 2>/dev/null), 1)
     CXX_WARNINGS += -Wno-error=sfinae-incomplete
+    # GCC 16 -Warray-bounds misreads std::shared_ptr and std::vector of the
+    # vehicle group functions (vehicle_group.h) as out of bounds.
+    CXX_WARNINGS += -Wno-error=array-bounds
   endif
 endif
 
@@ -1205,7 +1208,7 @@ $(BUILD_PREFIX)$(TARGET_NAME).a: $(OBJS)
 version:
 	@( VERSION_STRING=$(VERSION) ; \
         [ -e ".git" ] && \
-          GITVERSION=$$( git describe --tags --always --match "[0-9A-Z]*.[0-9A-Z]*" --match "cdda-experimental-*" --exact-match 2>/dev/null || true ) && \
+          GITVERSION=$$( git describe --tags --always --match "[0-9A-Z]*.[0-9A-Z]*" --match "signal-experimental-*" --exact-match 2>/dev/null || true ) && \
           GITSHA=$$( git rev-parse --short HEAD ) && \
           DIRTYFLAG=$$( [ -z "$$(git -c core.autocrlf=input -c core.safecrlf=false diff --numstat | grep -v lang/po/)" ] || echo "-dirty") && \
           VERSION_STRING="$$GITVERSION $$GITSHA$$DIRTYFLAG" && \
