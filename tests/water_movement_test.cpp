@@ -12,6 +12,7 @@
 #include "avatar_action.h"
 #include "calendar.h"
 #include "cata_catch.h"
+#include "cata_scope_helpers.h"
 #include "character.h"
 #include "coordinates.h"
 #include "game.h"
@@ -929,6 +930,12 @@ static std::map<std::string, swim_result> expected_results = {
 
 TEST_CASE( "check_swim_move_cost_and_distance_values", "[swimming][slow]" )
 {
+    // The table is the core game's, made under its stat cap of 20.  A mod that raises
+    // the cap lets the strength a level 5 swimmer trains show through.
+    restore_on_out_of_scope restore_max_str( character_max_str );
+    restore_on_out_of_scope restore_max_dex( character_max_dex );
+    character_max_str = 20;
+    character_max_dex = 20;
     setup_test_lake();
 
     avatar &dummy = get_avatar();
@@ -946,6 +953,10 @@ TEST_CASE( "check_swim_move_cost_and_distance_values", "[swimming][slow]" )
 // This "test" is used to generate the expected_results map above.
 TEST_CASE( "generate_swim_move_cost_and_distance_values", "[.]" )
 {
+    restore_on_out_of_scope restore_max_str( character_max_str );
+    restore_on_out_of_scope restore_max_dex( character_max_dex );
+    character_max_str = 20;
+    character_max_dex = 20;
     setup_test_lake();
 
     avatar &dummy = get_avatar();
