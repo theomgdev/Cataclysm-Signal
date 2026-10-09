@@ -259,7 +259,7 @@ tripoint_bub_ms make_storage_zone( Character &who )
 int count_of( const Character &guy, const itype_id &id )
 {
     int found = 0;
-    guy.visit_items( [&found, &id]( const item_location &node ) {
+    guy.visit_items( [&found, &id]( const item_location & node ) {
         if( node->typeId() == id ) {
             found += node->count();
         }
@@ -445,7 +445,7 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
     }
     CHECK( count_of( guy, itype_rock ) > 0 );
     int filthy_worn = 0;
-    guy.visit_items( [&guy, &filthy_worn]( const item_location &node ) {
+    guy.visit_items( [&guy, &filthy_worn]( const item_location & node ) {
         if( guy.is_worn( *node ) && node->is_filthy() ) {
             filthy_worn++;
         }
@@ -824,7 +824,7 @@ TEST_CASE( "npc_gear_up_empties_a_pack_before_wearing_it", "[npc][gear_up]" )
     // Wearing a shirt or two is fine -- they started with nothing on.  What
     // must not happen is the whole load coming along inside the bag.
     int stowed = 0;
-    guy.visit_items( [&guy, &stowed]( const item_location &node ) {
+    guy.visit_items( [&guy, &stowed]( const item_location & node ) {
         if( node->typeId() == itype_tshirt && !guy.is_worn( *node ) ) {
             stowed++;
         }
@@ -2089,7 +2089,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
     // holding more than that is doing the job of a pack, not a pocket.
     constexpr units::volume main_pack_threshold = 1500_ml;
 
-    guy.visit_items( [&]( const item_location &node ) {
+    guy.visit_items( [&]( const item_location & node ) {
         if( &*node == wielded.get_item() ) {
             return VisitResponse::NEXT;
         }
@@ -2146,7 +2146,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
     // ends up in whatever few pieces happened to be real armour.
     const auto bare_with_cover_left = [&guy, &tile]( const bodypart_id & bp ) {
         bool clothed = false;
-        guy.visit_items( [&guy, &clothed, &bp]( const item_location &node ) {
+        guy.visit_items( [&guy, &clothed, &bp]( const item_location & node ) {
             if( guy.is_worn( *node ) && node->covers( bp ) ) {
                 clothed = true;
                 return VisitResponse::ABORT;
