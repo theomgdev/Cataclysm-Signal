@@ -3,6 +3,7 @@
 #define CATA_SRC_CHARACTER_H
 
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <climits>
 #include <cstdint>
@@ -84,7 +85,6 @@ class spell;
 class ui_adaptor;
 class vehicle;
 class vpart_reference;
-
 enum scaling_stat : int;
 
 namespace catacurses
@@ -109,7 +109,6 @@ struct dealt_projectile_attack;
 /// @brief Item slot used to apply modifications from food and meds
 struct islot_comestible;
 struct item_comp;
-struct vitamin_resource_cost;
 struct itype;
 struct mutation_branch;
 struct mutation_category_trait;
@@ -120,6 +119,7 @@ struct requirement_data;
 struct tool_comp;
 struct trait_and_var;
 struct trap;
+struct vitamin_resource_cost;
 struct w_point;
 template <typename E> struct enum_traits;
 

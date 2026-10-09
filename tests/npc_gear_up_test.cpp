@@ -1,9 +1,17 @@
+#include <algorithm>
 #include <cstdio>
+#include <functional>
+#include <initializer_list>
+#include <list>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "activity_actor_definitions.h"
 #include "avatar.h"
 #include "bodypart.h"
 #include "calendar.h"
@@ -12,32 +20,38 @@
 #include "character_attire.h"
 #include "clzones.h"
 #include "coordinates.h"
-#include "faction.h"
+#include "enums.h"
 #include "flag.h"
-#include "game.h"
+#include "flexbuffer_json.h"
 #include "item.h"
 #include "item_category.h"
 #include "item_factory.h"
 #include "item_location.h"
-#include "item_pocket.h"
 #include "itype.h"
+#include "json.h"
 #include "json_loader.h"
 #include "map.h"
 #include "map_helpers.h"
 #include "map_helpers_tests.h"
+#include "map_iterator.h"
 #include "material.h"
+#include "monster.h"
 #include "npc.h"
 #include "npc_gear_up.h"
 #include "npctalk.h"
 #include "options_helpers.h"
 #include "player_activity.h"
 #include "player_helpers.h"
+#include "pocket_type.h"
 #include "point.h"
+#include "ret_val.h"
 #include "rng.h"
 #include "string_formatter.h"
 #include "type_id.h"
 #include "units.h"
+#include "value_ptr.h"
 #include "vehicle.h"
+#include "visitable.h"
 #include "vpart_position.h"
 #include "weather.h"
 
@@ -45,7 +59,7 @@ static const efftype_id effect_sleep( "sleep" );
 
 static const faction_id faction_free_merchants( "free_merchants" );
 
-static const flag_id flag_DEBUG_ONLY( "DEBUG_ONLY" );
+static const flag_id json_flag_DEBUG_ONLY( "DEBUG_ONLY" );
 
 static const item_category_id item_category_weapons( "weapons" );
 
@@ -1605,7 +1619,7 @@ TEST_CASE( "npc_gear_up_collects_from_multiple_separate_tiles", "[npc][gear_up]"
     npc &guy = spawn_bare_npc( { 50, 50 } );
     map &here = get_map();
 
-    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 1, 0, 0 ) );
+    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint::east );
     const tripoint_bub_ms tile_b = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 4, 0, 0 ) );
     const tripoint_bub_ms tile_c = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 8, 0, 0 ) );
 
@@ -2114,9 +2128,9 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
     } );
 
     auto print_list = [&]( const char *label, const std::vector<std::string> &items ) {
-        printf( "%s (%zu): ", label, items.size() );
+        printf( "%s (%zu):", label, items.size() );
         for( const std::string &s : items ) {
-            printf( "%s; ", s.c_str() );
+            printf( " %s;", s.c_str() );
         }
         printf( "\n" );
     };
@@ -2212,7 +2226,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
 // more than any single draw costs to simulate, so several trials are looped
 // inside one process launch: that pays the load cost once and still covers as
 // much ground per second of wall-clock time as re-launching would.
-constexpr int wide_pool_trials = 6;
+static constexpr int wide_pool_trials = 6;
 
 TEST_CASE( "npc_gear_up_wide_item_pool", "[npc][gear_up][.]" )
 {
@@ -2574,6 +2588,7 @@ TEST_CASE( "npc_gear_up_settles_on_an_outfit_and_stays_there", "[npc][gear_up]" 
         std::vector<std::string> pieces;
         std::vector<item *> worn;
         guy.worn.inv_dump( worn );
+        pieces.reserve( worn.size() );
         for( const item *piece : worn ) {
             pieces.push_back( piece->typeId().str() );
         }
@@ -2841,7 +2856,7 @@ TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
     for( const itype *type : item_controller->all() ) {
         if( type->armor && !type->has_flag( flag_CANT_WEAR ) &&
             !type->has_flag( flag_INTEGRATED ) && !type->has_flag( flag_NO_TAKEOFF ) &&
-            !type->has_flag( flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
+            !type->has_flag( json_flag_DEBUG_ONLY ) && type->get_id().str().rfind( "test_", 0 ) != 0 ) {
             pool.push_back( type->get_id() );
         }
     }
@@ -2864,6 +2879,7 @@ TEST_CASE( "npc_gear_up_settles_in_camps_of_random_armour", "[npc][gear_up]" )
             std::vector<std::string> pieces;
             std::vector<item *> worn;
             guy.worn.inv_dump( worn );
+            pieces.reserve( worn.size() );
             for( const item *piece : worn ) {
                 pieces.push_back( piece->typeId().str() );
             }

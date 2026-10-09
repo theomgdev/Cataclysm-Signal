@@ -1,13 +1,14 @@
+#include <string>
 #include <vector>
 
 #include "bodypart.h"
 #include "calendar.h"
 #include "cata_catch.h"
 #include "character.h"
-#include "game.h"
 #include "game_constants.h"
 #include "player_helpers.h"
 #include "skill.h"
+#include "type_id.h"
 #include "units.h"
 
 static const skill_id skill_bashing( "bashing" );

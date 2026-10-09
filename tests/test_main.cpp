@@ -33,6 +33,7 @@
 #include "calendar.h"
 #include "cata_allocator.h"
 #include "cata_assert.h"
+#include "cata_path.h"
 #include "cata_scope_helpers.h"
 #include "cata_utility.h"
 #include "color.h"
