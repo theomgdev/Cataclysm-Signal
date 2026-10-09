@@ -65,13 +65,17 @@ static const item_category_id item_category_weapons( "weapons" );
 
 static const itype_id itype_2x4( "2x4" );
 static const itype_id itype_9mm( "9mm" );
+static const itype_id itype_alcohol_wipes( "alcohol_wipes" );
+static const itype_id itype_apron_cotton( "apron_cotton" );
 static const itype_id itype_arm_splint( "arm_splint" );
+static const itype_id itype_armguard_soft( "armguard_soft" );
 static const itype_id itype_aspirin( "aspirin" );
 static const itype_id itype_backpack( "backpack" );
 static const itype_id itype_backpack_leather( "backpack_leather" );
 static const itype_id itype_ballistic_vest_esapi( "ballistic_vest_esapi" );
 static const itype_id itype_bandages( "bandages" );
 static const itype_id itype_bandolier_shotgun( "bandolier_shotgun" );
+static const itype_id itype_battleaxe( "battleaxe" );
 static const itype_id itype_bleach( "bleach" );
 static const itype_id itype_blindfold( "blindfold" );
 static const itype_id itype_boots( "boots" );
@@ -80,22 +84,27 @@ static const itype_id itype_box_small( "box_small" );
 static const itype_id itype_briefcase( "briefcase" );
 static const itype_id itype_canteen( "canteen" );
 static const itype_id itype_chestrig( "chestrig" );
+static const itype_id itype_corset( "corset" );
 static const itype_id itype_crowbar( "crowbar" );
 static const itype_id itype_duffelbag( "duffelbag" );
 static const itype_id itype_dump_pouch( "dump_pouch" );
 static const itype_id itype_dynamite( "dynamite" );
 static const itype_id itype_ear_plugs( "ear_plugs" );
 static const itype_id itype_esapi_plate( "esapi_plate" );
+static const itype_id itype_fitover_sunglasses( "fitover_sunglasses" );
 static const itype_id itype_foot_protectors_eod( "foot_protectors_eod" );
 static const itype_id itype_glock_19( "glock_19" );
 static const itype_id itype_glockmag( "glockmag" );
 static const itype_id itype_gloves_eod( "gloves_eod" );
+static const itype_id itype_gloves_fingerless( "gloves_fingerless" );
 static const itype_id itype_gloves_leather( "gloves_leather" );
 static const itype_id itype_hammer( "hammer" );
 static const itype_id itype_hat_hard( "hat_hard" );
+static const itype_id itype_hat_knit( "hat_knit" );
 static const itype_id itype_helmet_army( "helmet_army" );
 static const itype_id itype_helmet_eod( "helmet_eod" );
 static const itype_id itype_hoodie( "hoodie" );
+static const itype_id itype_ibuprofen( "ibuprofen" );
 static const itype_id itype_jacket_eod( "jacket_eod" );
 static const itype_id itype_jacket_leather( "jacket_leather" );
 static const itype_id itype_jacket_light( "jacket_light" );
@@ -103,6 +112,7 @@ static const itype_id itype_jeans( "jeans" );
 static const itype_id itype_katana( "katana" );
 static const itype_id itype_kevlar( "kevlar" );
 static const itype_id itype_knife_combat( "knife_combat" );
+static const itype_id itype_leggings( "leggings" );
 static const itype_id itype_longbow( "longbow" );
 static const itype_id itype_longshirt( "longshirt" );
 static const itype_id itype_machete( "machete" );
@@ -113,11 +123,14 @@ static const itype_id itype_pebble( "pebble" );
 static const itype_id itype_pointy_stick( "pointy_stick" );
 static const itype_id itype_purse( "purse" );
 static const itype_id itype_quiver( "quiver" );
+static const itype_id itype_rashguard( "rashguard" );
 static const itype_id itype_rock( "rock" );
 static const itype_id itype_roller_blades( "roller_blades" );
 static const itype_id itype_runner_bag( "runner_bag" );
 static const itype_id itype_sandwich_cheese( "sandwich_cheese" );
+static const itype_id itype_scarf( "scarf" );
 static const itype_id itype_sheet_cotton( "sheet_cotton" );
+static const itype_id itype_shorts( "shorts" );
 static const itype_id itype_shot_00( "shot_00" );
 static const itype_id itype_shot_bird( "shot_bird" );
 static const itype_id itype_shotgun_d( "shotgun_d" );
@@ -125,13 +138,17 @@ static const itype_id itype_socks( "socks" );
 static const itype_id itype_spear_wood( "spear_wood" );
 static const itype_id itype_sunglasses( "sunglasses" );
 static const itype_id itype_sweater( "sweater" );
+static const itype_id itype_sweatshirt( "sweatshirt" );
 static const itype_id itype_swim_fins( "swim_fins" );
+static const itype_id itype_throat_guard_cut_resistant( "throat_guard_cut_resistant" );
 static const itype_id itype_towel( "towel" );
 static const itype_id itype_trenchcoat( "trenchcoat" );
 static const itype_id itype_trousers_eod( "trousers_eod" );
 static const itype_id itype_tshirt( "tshirt" );
 static const itype_id itype_umbrella( "umbrella" );
 static const itype_id itype_water_clean( "water_clean" );
+static const itype_id itype_wearable_light( "wearable_light" );
+static const itype_id itype_welding_papr_helmet( "welding_papr_helmet" );
 static const itype_id itype_wrench( "wrench" );
 
 static const vproto_id vehicle_prototype_car( "car" );
@@ -2290,44 +2307,44 @@ TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[
 
     // Recreate the exact camp item environment
     const std::vector<itype_id> store_items = {
-        itype_id( "welding_papr_helmet" ),
-        itype_id( "hat_knit" ),
-        itype_id( "wearable_light" ),
-        itype_id( "fitover_sunglasses" ),
-        itype_id( "sunglasses" ),
-        itype_id( "throat_guard_cut_resistant" ),
-        itype_id( "scarf" ),
-        itype_id( "gloves_fingerless" ),
-        itype_id( "boots" ),
-        itype_id( "socks" ),
-        itype_id( "jeans" ),
-        itype_id( "leggings" ),
-        itype_id( "shorts" ),
-        itype_id( "armguard_soft" ),
-        itype_id( "rashguard" ), // 1st rashguard
-        itype_id( "rashguard" ), // 2nd rashguard
-        itype_id( "sweatshirt" ),
-        itype_id( "jacket_light" ),
-        itype_id( "corset" ),
-        itype_id( "apron_cotton" ),
-        itype_id( "duffelbag" ),
-        itype_id( "shotgun_d" ),
-        itype_id( "battleaxe" ),
+        itype_welding_papr_helmet,
+        itype_hat_knit,
+        itype_wearable_light,
+        itype_fitover_sunglasses,
+        itype_sunglasses,
+        itype_throat_guard_cut_resistant,
+        itype_scarf,
+        itype_gloves_fingerless,
+        itype_boots,
+        itype_socks,
+        itype_jeans,
+        itype_leggings,
+        itype_shorts,
+        itype_armguard_soft,
+        itype_rashguard, // 1st rashguard
+        itype_rashguard, // 2nd rashguard
+        itype_sweatshirt,
+        itype_jacket_light,
+        itype_corset,
+        itype_apron_cotton,
+        itype_duffelbag,
+        itype_shotgun_d,
+        itype_battleaxe,
     };
 
     for( const itype_id &id : store_items ) {
         here.add_item_or_charges( tile, item( id ) );
     }
 
-    item shells( itype_id( "shot_00" ) );
+    item shells( itype_shot_00 );
     shells.charges = 50;
     here.add_item_or_charges( tile, shells );
 
-    item wipes( itype_id( "alcohol_wipes" ) );
+    item wipes( itype_alcohol_wipes );
     wipes.charges = 10;
     here.add_item_or_charges( tile, wipes );
 
-    item pills( itype_id( "ibuprofen" ) );
+    item pills( itype_ibuprofen );
     pills.charges = 20;
     here.add_item_or_charges( tile, pills );
 
@@ -2335,21 +2352,21 @@ TEST_CASE( "npc_gear_up_layers_clothing_without_redundancy_or_layer_penalty", "[
 
     item_location wielded = guy.get_wielded_item();
     REQUIRE( wielded );
-    CHECK( wielded->typeId() == itype_id( "shotgun_d" ) );
+    CHECK( wielded->typeId() == itype_shotgun_d );
     CHECK( wielded->ammo_remaining() > 0 );
 
     // Backup weapon stashed in storage
-    CHECK( count_of( guy, itype_id( "battleaxe" ) ) > 0 );
+    CHECK( count_of( guy, itype_battleaxe ) > 0 );
 
     // Medical supplies collected
-    CHECK( count_of( guy, itype_id( "alcohol_wipes" ) ) > 0 );
-    CHECK( count_of( guy, itype_id( "ibuprofen" ) ) > 0 );
+    CHECK( count_of( guy, itype_alcohol_wipes ) > 0 );
+    CHECK( count_of( guy, itype_ibuprofen ) > 0 );
 
     // Exactly one rashguard worn; no same-layer duplicate rashguards
-    CHECK( guy.amount_worn( itype_id( "rashguard" ) ) == 1 );
+    CHECK( guy.amount_worn( itype_rashguard ) == 1 );
 
     // Blinding welding helmet was rejected
-    CHECK( count_of( guy, itype_id( "welding_papr_helmet" ) ) == 0 );
+    CHECK( count_of( guy, itype_welding_papr_helmet ) == 0 );
 
     // Check that layering penalty across all body parts is 0
     std::map<bodypart_id, encumbrance_data> enc_vals;
