@@ -1601,8 +1601,8 @@ bool is_weapon_upgrade( Character &p, const item &it )
 // against.  Recomputed once a turn like supplies_in_reach(): stores get
 // emptied and carried gear changes, and this walks the whole reachable area.
 item_location best_candidate_in_reach( Character &p,
-        const std::function<bool( Character &, const item & )> &wants,
-        const std::function<double( Character &, const item & )> &value )
+                                       const std::function<bool( Character &, const item & )> &wants,
+                                       const std::function<double( Character &, const item & )> &value )
 {
     item_location best;
     double best_value = 0.0;

@@ -427,7 +427,9 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
     // Two garments on one patch of skin at the same layer is the redundancy
     // worth catching; an undershirt beneath a coat is not.
     int torso_outerwear = 0;
-    for( const itype_id &coat : { itype_hoodie, itype_trenchcoat, itype_sweater } ) {
+    for( const itype_id &coat : {
+             itype_hoodie, itype_trenchcoat, itype_sweater
+         } ) {
         torso_outerwear += guy.amount_worn( coat );
     }
     CHECK( torso_outerwear <= 2 );
@@ -483,7 +485,9 @@ TEST_CASE( "npc_gear_up_respects_what_a_pocket_will_actually_hold", "[npc][gear_
     REQUIRE( guy.get_wielded_item() );
     CHECK( guy.get_wielded_item()->typeId() == itype_glock_19 );
     CHECK( count_of( guy, itype_longbow ) == 0 );
-    for( const itype_id &blade : { itype_machete, itype_knife_combat } ) {
+    for( const itype_id &blade : {
+             itype_machete, itype_knife_combat
+         } ) {
         if( count_of( guy, blade ) > 0 ) {
             CHECK( guy.can_stash( item( blade ) ) );
         }
@@ -1601,7 +1605,7 @@ TEST_CASE( "npc_gear_up_collects_from_multiple_separate_tiles", "[npc][gear_up]"
     npc &guy = spawn_bare_npc( { 50, 50 } );
     map &here = get_map();
 
-    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint(1, 0, 0) );
+    const tripoint_bub_ms tile_a = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 1, 0, 0 ) );
     const tripoint_bub_ms tile_b = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 4, 0, 0 ) );
     const tripoint_bub_ms tile_c = make_zone( guy, zone_type_CAMP_STORAGE, tripoint( 8, 0, 0 ) );
 
@@ -2059,7 +2063,7 @@ void scatter_draw_over( const tripoint_bub_ms &tile, const std::vector<itype_id>
 }
 
 void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
-                              const std::vector<itype_id> &draw )
+                             const std::vector<itype_id> &draw )
 {
     printf( "\n=== gear-up random draw (%zu items) ===\n", draw.size() );
 
@@ -2109,7 +2113,7 @@ void report_gear_up_outcome( npc &guy, const tripoint_bub_ms &tile,
         return VisitResponse::NEXT;
     } );
 
-    auto print_list = [&]( const char * label, const std::vector<std::string> &items ) {
+    auto print_list = [&]( const char *label, const std::vector<std::string> &items ) {
         printf( "%s (%zu): ", label, items.size() );
         for( const std::string &s : items ) {
             printf( "%s; ", s.c_str() );
