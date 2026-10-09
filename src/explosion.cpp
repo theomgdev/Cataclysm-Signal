@@ -640,7 +640,7 @@ void flashbang( const tripoint_bub_ms &p, bool player_immune, const int radius )
                 !guy.worn_with_flag( flag_DEAF ) ) {
                 guy.add_effect( effect_deaf, time_duration::from_turns( radius * 5 - dist * 4 ) );
             }
-            if( here.sees( guy.pos_bub(), p, radius ) ) {
+            if( here.sees( guy.pos_bub(), p, radius, true, los_trace::physical ) ) {
                 int flash_mod = 0;
                 int dur_mod = 1;
                 if( guy.has_trait( trait_PER_SLIME ) ) {
@@ -687,7 +687,8 @@ void flashbang( const tripoint_bub_ms &p, bool player_immune, const int radius )
             if( dist <= radius / 2 ) {
                 critter.add_effect( effect_stunned, time_duration::from_turns( radius / 0.8f - dist ) );
             }
-            if( critter.has_flag( mon_flag_SEES ) && here.sees( critter.pos_bub(), p, radius ) ) {
+            if( critter.has_flag( mon_flag_SEES ) &&
+                here.sees( critter.pos_bub(), p, radius, true, los_trace::physical ) ) {
                 critter.add_effect( effect_blind, time_duration::from_turns( radius * 2.5f - dist ) );
             }
             if( critter.has_flag( mon_flag_HEARS ) ) {
