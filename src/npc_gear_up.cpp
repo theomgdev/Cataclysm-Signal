@@ -357,7 +357,7 @@ bool shares_layer_and_sub_part( const item &a, const item &b )
 bool conflicts_with_worn( const Character &who, const item &candidate )
 {
     bool conflict = false;
-    who.visit_items( [&]( const item * node, item * ) {
+    who.visit_items( [&]( const item_location & node ) {
         if( who.is_worn( *node ) && shares_layer_and_sub_part( *node, candidate ) ) {
             conflict = true;
             return VisitResponse::ABORT;
@@ -752,7 +752,7 @@ double shooting_share( const Character &who )
     if( wielded && wielded->is_gun() ) {
         share = 1.0;
     } else {
-        who.visit_items( [&share]( const item * node, item * ) {
+        who.visit_items( [&share]( const item_location & node ) {
             if( node->is_gun() ) {
                 share = 0.5;
                 return VisitResponse::ABORT;
@@ -1201,7 +1201,7 @@ item_location find_carried( Character &who, const itype_id &id )
 int count_ammo_carried( const Character &who, const std::set<ammotype> &types )
 {
     int total = 0;
-    who.visit_items( [&total, &types]( const item * node, item * ) {
+    who.visit_items( [&total, &types]( const item_location & node ) {
         if( node->is_ammo() && types.count( node->ammo_type() ) > 0 ) {
             total += node->count();
         } else if( ( node->is_gun() || node->is_magazine() ) && node->ammo_remaining() > 0 ) {
@@ -1220,7 +1220,7 @@ int count_ammo_carried( const Character &who, const std::set<ammotype> &types )
 int count_carried( const Character &who, const std::function<bool( const item & )> &pred )
 {
     int total = 0;
-    who.visit_items( [&total, &pred]( const item * node, item * ) {
+    who.visit_items( [&total, &pred]( const item_location & node ) {
         if( pred( *node ) ) {
             total += node->count();
         }
@@ -1350,6 +1350,21 @@ const std::vector<const item *> &plates_in_reach( Character &p )
     return cache.store( p.getID(), std::move( plates ) );
 }
 
+// A bare item cannot remove one of its contents the way an item_location can;
+// remove_internal is what is left, followed by the updates item_location does.
+void take_out( item &container, const item &inner )
+{
+    int all = 1;
+    std::list<item> taken;
+    container.remove_internal( [&inner]( const item & other ) {
+        return &other == &inner;
+    }, all, taken );
+    container.update_modified_pockets();
+    if( !taken.empty() ) {
+        container.on_contents_changed();
+    }
+}
+
 // The piece as it would be worn: a bag arrives empty because wearing one
 // empties it into the camp's zones first, but the plates of a carrier stay
 // where they are, being armour, and an empty carrier is judged with the best
@@ -1370,7 +1385,7 @@ const item &as_worn( Character &p, const item &it )
     const std::vector<const item *> plates = plates_in( emptied );
     for( item *inner : emptied.all_items_top( pocket_type::CONTAINER ) ) {
         if( std::find( plates.begin(), plates.end(), inner ) == plates.end() ) {
-            emptied.remove_item( *inner );
+            take_out( emptied, *inner );
         }
     }
     std::vector<const item *> used;
@@ -1449,7 +1464,7 @@ const loading_supplies &supplies_in_reach( Character &who )
             }
         }
     };
-    who.visit_items( [&note]( const item * node, item * ) {
+    who.visit_items( [&note]( const item_location & node ) {
         note( *node );
         return VisitResponse::NEXT;
     } );
@@ -1665,7 +1680,7 @@ bool needs_backup_blade( Character &p )
         return false;
     }
     bool found = false;
-    p.visit_items( [&p, &found, fists]( const item * node, item * ) {
+    p.visit_items( [&p, &found, fists]( const item_location & node ) {
         if( is_weapon_candidate( *node ) && !node->is_gun() &&
             weapon_score( p, *node, false ) > fists && p.can_wield( *node ).success() ) {
             found = true;
@@ -1697,7 +1712,7 @@ bool needs_backup_gun( Character &p )
         return false;
     }
     bool has_gun_carried = false;
-    p.visit_items( [&has_gun_carried]( const item * node, item * ) {
+    p.visit_items( [&has_gun_carried]( const item_location & node ) {
         if( node->is_gun() ) {
             has_gun_carried = true;
             return VisitResponse::ABORT;
@@ -2126,7 +2141,7 @@ int ammo_shortfall( Character &p )
     int capacity = wielded->ammo_capacity( *types.begin() );
     if( capacity <= 0 && !wielded->magazine_integral() ) {
         const std::set<itype_id> compatible = wielded->magazine_compatible();
-        p.visit_items( [&capacity, &types, &compatible]( const item * node, item * ) {
+        p.visit_items( [&capacity, &types, &compatible]( const item_location & node ) {
             if( node->is_magazine() && compatible.count( node->typeId() ) > 0 ) {
                 capacity = std::max( capacity, node->ammo_capacity( *types.begin() ) );
             }
@@ -2201,12 +2216,12 @@ void carried_thrown( const Character &who, units::volume &volume, units::mass &w
     weight = 0_gram;
     item_location wielded = who.get_wielded_item();
     const item *in_hand = wielded ? &*wielded : nullptr;
-    who.visit_items( [&volume, &weight, in_hand]( const item * node, item * ) {
+    who.visit_items( [&volume, &weight, in_hand]( const item_location & node ) {
         if( !is_thrown_candidate( *node ) ) {
             return VisitResponse::NEXT;
         }
         const int stack = std::max( 1, node->count() );
-        const int usable = node == in_hand ? stack - 1 : stack;
+        const int usable = &*node == in_hand ? stack - 1 : stack;
         if( usable > 0 ) {
             volume += node->volume() / stack * usable;
             weight += node->weight() / stack * usable;
@@ -2244,7 +2259,7 @@ void carried_nutrition( const Character &who, int &kcal, int &quench )
 {
     kcal = 0;
     quench = 0;
-    who.visit_items( [&kcal, &quench]( const item * node, item * ) {
+    who.visit_items( [&kcal, &quench]( const item_location & node ) {
         if( node->is_food() ) {
             const auto &carried = node->get_comestible();
             if( carried ) {
@@ -2436,7 +2451,7 @@ void empty_where_it_stands( Character &who, item_location &loc, const tripoint_b
         if( !put_away( who, copy, tile ) ) {
             continue;
         }
-        loc->remove_item( *inner );
+        loc.remove_item( *inner );
         moved++;
     }
     if( moved > 0 ) {
@@ -2457,17 +2472,17 @@ void transfer_contents( Character &who, item &from, item &to, const tripoint_bub
         // before finding that out destroys it.  Asked quietly because a
         // refusal here is an ordinary answer, not a fault.
         if( to.put_in( copy, pocket_type::CONTAINER, false, nullptr, true ).success() ) {
-            from.remove_item( *inner );
+            take_out( from, *inner );
             who.mod_moves( -handle_cost_moves );
             continue;
         }
         if( who.can_stash( copy ) && who.i_add( copy ) ) {
-            from.remove_item( *inner );
+            take_out( from, *inner );
             who.mod_moves( -handle_cost_moves );
             continue;
         }
         if( put_away( who, copy, tile ) ) {
-            from.remove_item( *inner );
+            take_out( from, *inner );
             who.mod_moves( -handle_cost_moves );
         }
     }

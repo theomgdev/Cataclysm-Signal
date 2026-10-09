@@ -658,6 +658,8 @@ void Character::apply_murder_penalties( Creature *victim )
             player_character.add_morale( morale_killed_innocent, morale_effect, 0, 10_days, 7_days );
         }
     }
+    // Guilt kills incur an extra point of "temporary" trauma that can be reduced over time, in addition to their point of "permanent" deadening.
+    player_character.mod_trauma( 1 );
 }
 
 std::pair<int, int> Character::climate_control_strength() const
