@@ -1751,6 +1751,11 @@ TEST_CASE( "npc_gear_up_equips_from_a_vehicle_s_cargo", "[npc][gear_up]" )
                                      veh_spawn_status::UNDAMAGED );
     REQUIRE( veh != nullptr );
     veh->set_owner( guy.get_faction_id() );
+    // The car comes stocked from an item group, and a daypack in the trunk
+    // beats the backpack this case is about.
+    for( const vpart_reference &vp : veh->get_all_parts() ) {
+        veh->get_items( vp.part() ).clear();
+    }
 
     // The roomiest cargo part, so the test is about what the sweep reads and
     // not about a trunk that happened to be full.
@@ -1802,6 +1807,9 @@ TEST_CASE( "npc_gear_up_puts_displaced_gear_back_into_the_vehicle", "[npc][gear_
                                      veh_spawn_status::UNDAMAGED );
     REQUIRE( veh != nullptr );
     veh->set_owner( guy.get_faction_id() );
+    for( const vpart_reference &vp : veh->get_all_parts() ) {
+        veh->get_items( vp.part() ).clear();
+    }
 
     std::optional<vpart_reference> cargo;
     tripoint_bub_ms cargo_pos;
