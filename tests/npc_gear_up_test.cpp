@@ -309,6 +309,17 @@ int items_on( const tripoint_bub_ms &tile )
     return get_map().i_at( tile ).size();
 }
 
+// Frozen food is food nobody packs; say so up front rather than as a missing sandwich.
+bool any_frozen_on( const tripoint_bub_ms &tile )
+{
+    for( const item &it : get_map().i_at( tile ) ) {
+        if( it.has_own_flag( flag_FROZEN ) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void reset_world()
 {
     // Mid-morning.  Rummaging through crates needs light, and the activity
@@ -318,10 +329,13 @@ void reset_world()
     clear_map_without_vision();
     clear_avatar();
     zone_manager::get_manager().clear();
-    // Temperature is generated for the player's position and then cached until
-    // the weather is next due, so an earlier case can leave this world cold
-    // enough to freeze the rations solid, and frozen food is food nobody packs.
+    // 09:30 on the first day sits on the freezing line, and the temperature
+    // follows wherever an earlier case left the avatar on the map, so a loose
+    // sandwich can come out frozen -- and frozen food is food nobody packs.
+    // Pin a cool day; testCaseEnded lifts it again.
     get_weather().set_nextweather( calendar::turn );
+    get_weather().forced_temperature = units::from_celsius( 5 );
+    get_weather().clear_temp_cache();
     // Every test resets calendar::turn to the same constant and the avatar
     // cases all reuse the same singleton character, so the order's per-turn
     // scan caches need an explicit kick or a later test can be answered by a
@@ -384,6 +398,7 @@ TEST_CASE( "npc_gear_up_turns_out_a_whole_loadout", "[npc][gear_up]" )
         REQUIRE( canteen.put_in( water, pocket_type::CONTAINER ).success() );
         here.add_item_or_charges( tile, canteen );
     }
+    REQUIRE_FALSE( any_frozen_on( tile ) );
 
     // A wardrobe with duplicates and competing pieces for the same skin.
     for( const itype_id &clothing : {
@@ -1511,6 +1526,7 @@ TEST_CASE( "npc_gear_up_takes_a_day_of_food_not_the_larder", "[npc][gear_up]" )
     for( int i = 0; i < 40; i++ ) {
         here.add_item_or_charges( tile, item( itype_sandwich_cheese ) );
     }
+    REQUIRE_FALSE( any_frozen_on( tile ) );
 
     run_gear_up( guy );
 
