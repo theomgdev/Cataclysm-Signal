@@ -84,7 +84,7 @@ class faction_mission
         skill_id skill_used;
         risk_diff_level difficulty;
         risk_diff_level risk;
-        float activity_level;
+        float activity_level = 0.0f;
         translation time;
         uint16_t positions;
         translation items_label;
